@@ -1,0 +1,38 @@
+#!/bin/sh
+set -eu
+
+{
+  printf 'ip6tables'
+  for arg do
+    printf ' %s' "$arg"
+    case $arg in -A|-I|-D|-F|-N|-X) exit 97 ;; esac
+  done
+  printf '\n'
+} >>"$STUB_LOG"
+
+case $* in
+  '-S UBIOS_INPUT_USER_HOOK')
+    [ "${DIAG_FALLBACK_CHAINS:-0}" != 1 ] || exit 1
+    printf '%s\n' '-N UBIOS_INPUT_USER_HOOK'
+    if [ "${DIAG_OUTER_NEGATED:-0}" = 1 ]; then
+      printf '%s\n' '-A UBIOS_INPUT_USER_HOOK ! -s 2001:db8:ffff::1/128 -d 2001:db8:1234:30:cb:71:2a00:0/128 -p 4 -m comment --comment v6plus-static-ip -j ACCEPT'
+    elif [ "${DIAG_OUTER_EXTRA:-0}" = 1 ]; then
+      printf '%s\n' '-A UBIOS_INPUT_USER_HOOK -s 2001:db8:ffff::1/128 -d 2001:db8:1234:30:cb:71:2a00:0/128 -p 4 -i eth9 -m comment --comment v6plus-static-ip -j ACCEPT'
+    elif [ "${DIAG_OUTER_ARBITRARY_COMMENT:-0}" = 1 ]; then
+      printf '%s\n' '-A UBIOS_INPUT_USER_HOOK -s 2001:db8:ffff::1/128 -d 2001:db8:1234:30:cb:71:2a00:0/128 -p 4 -m comment --comment not-approved -j ACCEPT'
+    elif [ "${DIAG_OUTER_UNTAGGED:-0}" = 1 ]; then
+      printf '%s\n' '-A UBIOS_INPUT_USER_HOOK -s 2001:db8:ffff::1 -d 2001:db8:1234:30:cb:71:2a00:0 -p 4 -j ACCEPT'
+    elif [ "${DIAG_OUTER_IPENCAP:-0}" = 1 ]; then
+      printf '%s\n' '-A UBIOS_INPUT_USER_HOOK -s 2001:db8:ffff::1/128 -d 2001:db8:1234:30:cb:71:2a00:0/128 -p ipencap -m comment --comment v6plus-static-ip -j ACCEPT'
+    else
+      printf '%s\n' '-A UBIOS_INPUT_USER_HOOK -s 2001:db8:ffff::1/128 -d 2001:db8:1234:30:cb:71:2a00:0/128 -p 4 -m comment --comment v6plus-static-ip -j ACCEPT'
+    fi
+    ;;
+  '-S INPUT')
+    printf '%s\n' '-A INPUT -s 2001:db8:ffff::1/128 -d 2001:db8:1234:30:cb:71:2a00:0/128 -p 4 -m comment --comment v6plus-static-ip -j ACCEPT'
+    ;;
+  *)
+    printf 'unexpected ip6tables invocation: %s\n' "$*" >&2
+    exit 98
+    ;;
+esac

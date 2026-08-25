@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+[ "$#" -eq 1 ] && [ "$1" = 1 ] || exit 64
+printf 'sleep=%s\n' "$1" >>"$WAIT_SLEEP_LOG"
+IFS= read -r round <"$WAIT_ROUND_FILE"
+printf '%s\n' "$((round + 1))" >"$WAIT_ROUND_FILE"

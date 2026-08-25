@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+: "${SLEEP_ARGV_LOG:?}"
+[ -z "${CHILD_ENV_LOG:-}" ] || { printf '%s\n' '--- sleep ---' >>"$CHILD_ENV_LOG"; env >>"$CHILD_ENV_LOG"; }
+printf '%s\n' "$*" >>"$SLEEP_ARGV_LOG"

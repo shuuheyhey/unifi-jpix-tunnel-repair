@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+[ -z "${CHILD_ENV_LOG:-}" ] || { printf '%s\n' '--- date ---' >>"$CHILD_ENV_LOG"; env >>"$CHILD_ENV_LOG"; }
+if [ -n "${STUB_DATE_VALUE:-}" ]; then
+  [ "$#" -eq 1 ] && [ "$1" = +%s ] || exit 97
+  printf '%s\n' "$STUB_DATE_VALUE"
+  exit 0
+fi
+exec /usr/bin/date "$@"

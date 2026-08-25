@@ -1,0 +1,8 @@
+.worktrees/
+config/v6plus.env
+config/networks.conf
+config/update.env
+diagnostics/
+test-results/
+*.log
+*.tmp

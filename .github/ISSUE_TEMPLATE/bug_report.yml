@@ -1,0 +1,43 @@
+name: Bug report
+description: Report a reproducible problem without deployment secrets
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include credentials, complete public addresses, prefixes, device identifiers, or full diagnostics. Use share-safe output only.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: Device model and UniFi OS major/minor series only.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction
+      description: Use synthetic values and list the smallest safe reproduction.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Share-safe diagnostics
+      description: Paste only DIAGNOSTIC_MODE=share-safe output.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I removed credentials, addresses, prefixes, MACs, serials, device IDs, and full diagnostics.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true

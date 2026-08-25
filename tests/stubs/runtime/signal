@@ -1,0 +1,10 @@
+#!/bin/sh
+set -u
+
+[ "$#" -eq 2 ] || exit 64
+[ -n "${RUNTIME_SIGNAL_LOG:-}" ] || exit 64
+printf '%s %s\n' "$1" "$2" >>"$RUNTIME_SIGNAL_LOG"
+if [ "${RUNTIME_SIGNAL_PASSTHROUGH:-0}" = 1 ]; then
+  exec /bin/kill "$@"
+fi
+exit "${RUNTIME_SIGNAL_STATUS:-0}"

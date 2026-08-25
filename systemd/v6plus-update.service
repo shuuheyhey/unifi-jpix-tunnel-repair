@@ -1,0 +1,14 @@
+[Unit]
+Description=Check and notify the JPIX v6plus address update
+After=v6plus-apply.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ReadOnlyPaths=/data/v6plus/scripts /data/v6plus/config
+ExecStart=/data/v6plus/scripts/v6plus-update.sh

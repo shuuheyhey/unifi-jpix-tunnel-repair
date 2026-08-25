@@ -1,0 +1,27 @@
+#!/bin/sh
+set -eu
+
+{
+  printf 'ubnt-device-info'
+  for arg do printf ' %s' "$arg"; done
+  printf '\n'
+} >>"$STUB_LOG"
+[ "$*" = firmware ] || exit 98
+
+case ${DIAG_UBNT_MODE:-fail} in
+  fail) exit 1 ;;
+  empty) exit 0 ;;
+  first)
+    printf '4.1.13\n'
+    ;;
+  multi)
+    printf '4.1.13\n'
+    line=0
+    while [ "$line" -lt 20000 ]; do
+      printf 'unconsumed-version-line-%s\n' "$line"
+      line=$((line + 1))
+    done
+    : >"$V6PLUS_VERSION_DRAIN_MARKER"
+    ;;
+  *) exit 98 ;;
+esac

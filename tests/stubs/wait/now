@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+[ "$#" -eq 0 ] || exit 64
+IFS= read -r previous_call <"$WAIT_NOW_CALL_FILE"
+call=$((previous_call + 1))
+printf '%s\n' "$call" >"$WAIT_NOW_CALL_FILE"
+now=$(awk -v wanted="$call" 'NR == wanted { print; found=1; exit } END { exit !found }' "$WAIT_NOW_VALUES_FILE") || exit 64
+printf 'call=%s now=%s\n' "$call" "$now" >>"$WAIT_CLOCK_LOG"
+printf '%s\n' "$now"

@@ -1,0 +1,89 @@
+#!/bin/sh
+set -u
+
+[ -n "${RUNTIME_APPLY_LOG:-}" ] || exit 64
+printf '%s\n' "$*" >>"$RUNTIME_APPLY_LOG"
+[ -z "${RUNTIME_CHILD_ENV_LOG:-}" ] || env >>"$RUNTIME_CHILD_ENV_LOG"
+
+if [ "${1:-}" = --config ]; then
+  [ "$#" -ge 3 ] || exit 64
+  shift 2
+fi
+[ "$#" -eq 1 ] || exit 64
+
+next_result() {
+  sequence=$1
+  counter=$2
+  default_result=$3
+  count=$(cat "$counter" 2>/dev/null || :)
+  [ -n "$count" ] || count=0
+  case $count in ''|*[!0-9]*) exit 65 ;; esac
+  count=$((count + 1))
+  printf '%s\n' "$count" >"$counter"
+  result=
+  if [ -n "$sequence" ] && [ -f "$sequence" ]; then
+    result=$(sed -n "${count}p" "$sequence")
+    [ -n "$result" ] || result=$(sed -n '$p' "$sequence")
+  fi
+  [ -n "$result" ] || result=$default_result
+  case $result in ''|*[!0-9]*|0[0-9]*) exit 66 ;; esac
+  [ "$result" -le 125 ] || exit 66
+  printf '%s\n' "$result"
+}
+
+record_clock() {
+  clock_log=$1
+  [ -n "$clock_log" ] || return 0
+  [ -n "${RUNTIME_CLOCK_FILE:-}" ] && [ -f "$RUNTIME_CLOCK_FILE" ] || exit 67
+  clock_value=$(cat "$RUNTIME_CLOCK_FILE") || exit 67
+  case $clock_value in ''|*[!0-9]*|0[0-9]*) exit 67 ;; esac
+  printf '%s\n' "$clock_value" >>"$clock_log" || exit 67
+}
+
+advance_clock() {
+  clock_delta=$1
+  case $clock_delta in ''|*[!0-9]*|0[0-9]*) exit 68 ;; esac
+  [ "$clock_delta" -gt 0 ] || return 0
+  [ -n "${RUNTIME_CLOCK_FILE:-}" ] && [ -f "$RUNTIME_CLOCK_FILE" ] || exit 68
+  clock_value=$(cat "$RUNTIME_CLOCK_FILE") || exit 68
+  case $clock_value in ''|*[!0-9]*|0[0-9]*) exit 68 ;; esac
+  printf '%s\n' "$((clock_value + clock_delta))" >"$RUNTIME_CLOCK_FILE" || exit 68
+}
+
+case $1 in
+  status)
+    result=$(next_result "${RUNTIME_STATUS_SEQUENCE:-}" "${RUNTIME_STATUS_COUNTER:-/dev/null}" "${RUNTIME_STATUS_DEFAULT:-0}")
+    if [ -n "${RUNTIME_STATUS_NAME_SEQUENCE:-}" ] && [ -f "$RUNTIME_STATUS_NAME_SEQUENCE" ]; then
+      status_count=$(cat "${RUNTIME_STATUS_COUNTER:?}") || exit 69
+      status_name=$(sed -n "${status_count}p" "$RUNTIME_STATUS_NAME_SEQUENCE")
+      [ -n "$status_name" ] || status_name=$(sed -n '$p' "$RUNTIME_STATUS_NAME_SEQUENCE")
+      [ -n "$status_name" ] || exit 69
+      printf 'ERROR %s=drift expected=managed\n' "$status_name"
+    else
+      [ -z "${RUNTIME_STATUS_PAYLOAD:-}" ] || cat "$RUNTIME_STATUS_PAYLOAD"
+      [ -z "${RUNTIME_STATUS_ERROR_PAYLOAD:-}" ] || cat "$RUNTIME_STATUS_ERROR_PAYLOAD" >&2
+    fi
+    exit "$result"
+    ;;
+  apply)
+    result=$(next_result "${RUNTIME_APPLY_SEQUENCE:-}" "${RUNTIME_APPLY_COUNTER:-/dev/null}" "${RUNTIME_APPLY_DEFAULT:-0}")
+    record_clock "${RUNTIME_APPLY_TIME_LOG:-}"
+    advance_clock "${RUNTIME_APPLY_ADVANCE:-0}"
+    if [ "$result" -eq 0 ] && [ -n "${RUNTIME_APPLY_ENDPOINT_FILE:-}" ] && [ -f "$RUNTIME_APPLY_ENDPOINT_FILE" ]; then
+      endpoint=$(cat "$RUNTIME_APPLY_ENDPOINT_FILE")
+      umask 077
+      {
+        printf 'LOCAL_V6=%s\n' "$endpoint"
+        printf 'NAT_CHAIN=POSTROUTING\n'
+        printf 'V6_INPUT_CHAIN=none\n'
+        printf 'V6_INPUT_MANAGED=no\n'
+        printf 'APPLIED_AT=1700000000\n'
+      } >"$V6PLUS_STATE_DIR/last-apply.env"
+      chmod 600 "$V6PLUS_STATE_DIR/last-apply.env"
+    fi
+    [ "$result" -eq 0 ] || printf 'lock held; repair deferred\n' >&2
+    exit "$result"
+    ;;
+esac
+
+exit 64

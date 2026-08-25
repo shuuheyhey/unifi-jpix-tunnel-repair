@@ -1,0 +1,8 @@
+#!/bin/sh
+{
+  printf 'systemctl'
+  for arg in "$@"; do printf ' %s' "$arg"; done
+  printf '\n'
+} >>"$WAIT_EXTERNAL_LOG"
+for arg in "$@"; do case $arg in start|restart|enable|disable|stop) exit 97 ;; esac; done
+exit 0

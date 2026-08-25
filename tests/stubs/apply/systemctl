@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+: "${STUB_STATE_DIR:?}"
+: "${STUB_LOG:?}"
+printf 'systemctl' >>"$STUB_LOG"
+for stub_arg in "$@"; do printf ' %s' "$stub_arg" >>"$STUB_LOG"; done
+printf '\n' >>"$STUB_LOG"
+
+case "$*" in
+  'is-active --quiet '*)
+    if [ -f "$STUB_STATE_DIR/systemctl.fail" ] && grep -F -x -- "$3" "$STUB_STATE_DIR/systemctl.fail" >/dev/null 2>&1; then exit 1; fi
+    if grep -F -x -- "$3" "$STUB_STATE_DIR/services.active" >/dev/null 2>&1; then exit 0; else exit 3; fi
+    ;;
+  *) exit 2 ;;
+esac

@@ -1,0 +1,100 @@
+#!/bin/sh
+set -u
+
+[ "$#" -eq 3 ] || exit 64
+probe_proc_pid=$1
+probe_signal_pid=$2
+probe_parent_pid=$3
+case $probe_proc_pid in ''|*[!0-9]*|0|0[0-9]*) exit 64 ;; esac
+case $probe_signal_pid in ''|*[!0-9]*|0|0[0-9]*) exit 64 ;; esac
+case $probe_parent_pid in ''|*[!0-9]*|0|0[0-9]*) exit 64 ;; esac
+[ -n "${RUNTIME_IDENTITY_LOG:-}" ] || exit 64
+[ -n "${RUNTIME_IDENTITY_COUNTER:-}" ] || exit 64
+[ -n "${RUNTIME_IDENTITY_BASE_FILE:-}" ] || exit 64
+
+probe_count=$(cat "$RUNTIME_IDENTITY_COUNTER" 2>/dev/null || :)
+[ -n "$probe_count" ] || probe_count=0
+case $probe_count in ''|*[!0-9]*) exit 65 ;; esac
+probe_count=$((probe_count + 1))
+printf '%s\n' "$probe_count" >"$RUNTIME_IDENTITY_COUNTER"
+printf '%s %s %s %s\n' "$probe_count" "$probe_proc_pid" "$probe_signal_pid" "$probe_parent_pid" >>"$RUNTIME_IDENTITY_LOG"
+
+read_actual_identity() {
+  IFS= read -r probe_stat_line <"/proc/$probe_proc_pid/stat" || return 1
+  probe_host_pid=${probe_stat_line%% *}
+  [ "$probe_host_pid" != "$probe_stat_line" ] || return 1
+  probe_stat_tail=${probe_stat_line##*) }
+  [ "$probe_stat_tail" != "$probe_stat_line" ] || return 1
+  set -f
+  set -- $probe_stat_tail
+  set +f
+  [ "$#" -ge 20 ] || return 1
+  shift 19
+  probe_actual_start=$1
+  case $probe_host_pid in ''|*[!0-9]*|0|0[0-9]*) return 1 ;; esac
+  case $probe_actual_start in ''|*[!0-9]*|0[0-9]*) return 1 ;; esac
+  [ "$probe_host_pid" = "$probe_proc_pid" ] || return 1
+  probe_nspid_seen=0
+  while IFS= read -r probe_status_line || [ -n "$probe_status_line" ]; do
+    case $probe_status_line in NSpid:*) ;; *) continue ;; esac
+    [ "$probe_nspid_seen" -eq 0 ] || return 1
+    set -f
+    set -- $probe_status_line
+    set +f
+    [ "$#" -ge 2 ] && [ "$1" = NSpid: ] || return 1
+    shift
+    probe_first_nspid=$1
+    probe_last_nspid=
+    for probe_nspid in "$@"; do
+      case $probe_nspid in ''|*[!0-9]*|0|0[0-9]*) return 1 ;; esac
+      probe_last_nspid=$probe_nspid
+    done
+    probe_nspid_seen=1
+  done <"/proc/$probe_proc_pid/status" || return 1
+  [ "$probe_nspid_seen" -eq 1 ] || return 1
+  [ "$probe_first_nspid" = "$probe_proc_pid" ] || return 1
+  [ "$probe_last_nspid" = "$probe_signal_pid" ] || return 1
+  probe_actual_proc_pid=$probe_proc_pid
+  probe_actual_signal_pid=$probe_signal_pid
+}
+
+probe_mode=${RUNTIME_IDENTITY_MODE:-actual}
+case $probe_mode in
+  mismatch_after_first)
+    if [ "$probe_count" -eq 1 ]; then
+      read_actual_identity || exit 66
+      printf '%s %s %s\n' "$probe_actual_proc_pid" "$probe_actual_signal_pid" "$probe_actual_start" >"$RUNTIME_IDENTITY_BASE_FILE"
+    else
+      IFS=' ' read -r probe_actual_proc_pid probe_actual_signal_pid probe_actual_start probe_extra <"$RUNTIME_IDENTITY_BASE_FILE" || exit 66
+      [ -z "$probe_extra" ] || exit 66
+      probe_actual_start=$((probe_actual_start + 1))
+    fi
+    ;;
+  *) read_actual_identity || exit 66 ;;
+esac
+
+case $probe_mode in
+  actual|mismatch_after_first)
+    printf '%s %s %s\n' "$probe_actual_proc_pid" "$probe_actual_signal_pid" "$probe_actual_start"
+    ;;
+  proc_pid_mismatch_first)
+    printf '%s %s %s\n' "$((probe_actual_proc_pid + 1))" "$probe_actual_signal_pid" "$probe_actual_start"
+    ;;
+  signal_pid_mismatch_first)
+    printf '%s %s %s\n' "$probe_actual_proc_pid" "$((probe_actual_signal_pid + 1))" "$probe_actual_start"
+    ;;
+  leading_zero_proc)
+    printf '0%s %s %s\n' "$probe_actual_proc_pid" "$probe_actual_signal_pid" "$probe_actual_start"
+    ;;
+  leading_zero_start)
+    printf '%s %s 0%s\n' "$probe_actual_proc_pid" "$probe_actual_signal_pid" "$probe_actual_start"
+    ;;
+  extra_fields)
+    printf '%s %s %s unexpected\n' "$probe_actual_proc_pid" "$probe_actual_signal_pid" "$probe_actual_start"
+    ;;
+  signal_first)
+    [ "$probe_count" -eq 1 ] && /bin/kill -TERM "$probe_parent_pid"
+    printf '%s %s %s\n' "$probe_actual_proc_pid" "$probe_actual_signal_pid" "$probe_actual_start"
+    ;;
+  *) exit 67 ;;
+esac

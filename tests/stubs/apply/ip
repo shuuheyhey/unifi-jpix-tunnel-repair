@@ -1,0 +1,219 @@
+#!/bin/sh
+set -eu
+
+: "${STUB_STATE_DIR:?}"
+: "${STUB_LOG:?}"
+
+printf 'ip' >>"$STUB_LOG"
+for stub_arg in "$@"; do printf ' %s' "$stub_arg" >>"$STUB_LOG"; done
+printf '\n' >>"$STUB_LOG"
+
+stub_invocation="ip $*"
+stub_invocation_count=$(awk -v wanted="$stub_invocation" '$0 == wanted { count++ } END { print count+0 }' "$STUB_LOG")
+if [ -f "$STUB_STATE_DIR/fail-at.invocations" ] && grep -F -x -- "$stub_invocation_count|$stub_invocation" "$STUB_STATE_DIR/fail-at.invocations" >/dev/null 2>&1; then
+  exit 71
+fi
+if [ -f "$STUB_STATE_DIR/fail-once.invocations" ] && grep -F -x -- "$stub_invocation" "$STUB_STATE_DIR/fail-once.invocations" >/dev/null 2>&1; then
+  awk -v wanted="$stub_invocation" '!removed && $0 == wanted { removed=1; next } { print }' "$STUB_STATE_DIR/fail-once.invocations" >"$STUB_STATE_DIR/fail-once.tmp"
+  mv "$STUB_STATE_DIR/fail-once.tmp" "$STUB_STATE_DIR/fail-once.invocations"
+  exit 71
+fi
+
+if [ -f "$STUB_STATE_DIR/fail.invocations" ] && grep -F -x -- "ip $*" "$STUB_STATE_DIR/fail.invocations" >/dev/null 2>&1; then
+  exit 71
+fi
+
+tunnel=$STUB_STATE_DIR/tunnel.state
+addr4=$STUB_STATE_DIR/addr4.state
+addr6=$STUB_STATE_DIR/addr6.state
+routes=$STUB_STATE_DIR/routes.state
+rules=$STUB_STATE_DIR/rules.state
+links=$STUB_STATE_DIR/links.state
+
+value() { sed -n "s/^$1=//p" "$tunnel" | sed -n '1p'; }
+has_line() { grep -F -x -- "$2" "$1" >/dev/null 2>&1; }
+add_line() { has_line "$1" "$2" || printf '%s\n' "$2" >>"$1"; }
+del_line() {
+  stub_file=$1
+  stub_record=$2
+  awk -v record="$stub_record" '$0 != record' "$stub_file" >"$stub_file.tmp"
+  mv "$stub_file.tmp" "$stub_file"
+}
+del_one_line() {
+  stub_file=$1
+  stub_record=$2
+  awk -v record="$stub_record" '!deleted && $0 == record { deleted=1; next } { print }' "$stub_file" >"$stub_file.tmp"
+  mv "$stub_file.tmp" "$stub_file"
+}
+join_args() {
+  joined=
+  while [ "$#" -gt 0 ]; do
+    if [ -n "$joined" ]; then joined="$joined $1"; else joined=$1; fi
+    shift
+  done
+  printf '%s\n' "$joined"
+}
+replace_tunnel() {
+  stub_key=$1
+  stub_value=$2
+  awk -F= -v key="$stub_key" -v value="$stub_value" '
+    $1 == key { print key "=" value; found=1; next }
+    { print }
+    END { if (!found) print key "=" value }
+  ' "$tunnel" >"$tunnel.tmp"
+  mv "$tunnel.tmp" "$tunnel"
+}
+link_exists() {
+  [ "$1" = "$(value TUN_IF)" ] || awk -F'|' -v iface="$1" '$1 == iface { found=1 } END { exit !found }' "$links"
+}
+link_field() { awk -F'|' -v iface="$1" -v field="$2" '$1 == iface { print $field; exit }' "$links"; }
+signal_after() {
+  if [ -f "$STUB_STATE_DIR/signal-after.invocations" ] && grep -F -x -- "ip $*" "$STUB_STATE_DIR/signal-after.invocations" >/dev/null 2>&1; then
+    kill -TERM "$PPID"
+    sleep 1
+  fi
+}
+
+case "$*" in
+  '-6 route get '*)
+    destination=$4
+    [ -f "$STUB_STATE_DIR/route6.missing" ] && exit 1
+    source=$(cat "$STUB_STATE_DIR/route6.source")
+    printf '%s via fe80::1 dev eth9 src %s metric 1024\n' "$destination" "$source"
+    ;;
+  '-d -6 tunnel show '*)
+    [ "$5" = "$(value TUN_IF)" ] || exit 1
+    [ -f "$tunnel" ] || exit 1
+    if [ -f "$STUB_STATE_DIR/tunnel.show-output" ]; then
+      cat "$STUB_STATE_DIR/tunnel.show-output"
+    else
+      printf '%s: %s remote %s local %s\n' "$(value TUN_IF)" "$(value TUN_MODE)" "$(value TUN_REMOTE)" "$(value TUN_LOCAL)"
+    fi
+    ;;
+  '-6 tunnel change '*)
+    [ "$4" = "$(value TUN_IF)" ] && [ "$5" = mode ] && [ "$7" = local ] && [ "$9" = remote ] && [ "$#" -eq 10 ] || exit 2
+    replace_tunnel TUN_MODE "$6"
+    replace_tunnel TUN_LOCAL "$8"
+    replace_tunnel TUN_REMOTE "${10}"
+    ;;
+  'link show dev '*)
+    [ "$#" -eq 4 ] && link_exists "$4" || exit 1
+    printf '1: %s: <UP> mtu 1500 state UP\n' "$4"
+    ;;
+  '-o link show dev '*)
+    [ "$#" -eq 5 ] && link_exists "$5" || exit 1
+    if [ "$5" = "$(value TUN_IF)" ]; then
+      mtu=$(value TUN_MTU)
+      up=$(value TUN_UP)
+    else
+      mtu=$(link_field "$5" 3)
+      up=$(link_field "$5" 2)
+    fi
+    if [ "$up" = yes ]; then flags=POINTOPOINT,UP; state=UP; else flags=POINTOPOINT; state=DOWN; fi
+    if [ "$5" = "$(value TUN_IF)" ] && [ -f "$STUB_STATE_DIR/tunnel.link-state" ]; then state=$(cat "$STUB_STATE_DIR/tunnel.link-state"); fi
+    printf '1: %s: <%s> mtu %s state %s\n' "$5" "$flags" "$mtu" "$state"
+    ;;
+  'link set dev '*)
+    [ "$#" -ge 7 ] && [ "$4" = "$(value TUN_IF)" ] && [ "$5" = mtu ] || exit 2
+    replace_tunnel TUN_MTU "$6"
+    case $7 in up) replace_tunnel TUN_UP yes ;; down) replace_tunnel TUN_UP no ;; *) exit 2 ;; esac
+    ;;
+  '-6 addr show dev '*)
+    [ "$#" -eq 5 ] && link_exists "$5" || exit 1
+    if [ -f "$STUB_STATE_DIR/addr6.show-output" ]; then
+      cat "$STUB_STATE_DIR/addr6.show-output"
+    else
+      awk -F'|' -v iface="$5" '$1 == iface { print "    inet6 " $2 " scope global" }' "$addr6"
+    fi
+    ;;
+  '-6 addr replace '*)
+    [ "$#" -eq 6 ] && [ "$5" = dev ] && link_exists "$6" || exit 2
+    add_line "$addr6" "$6|$4"
+    signal_after "$@"
+    ;;
+  '-6 addr del '*)
+    [ "$#" -eq 6 ] && [ "$5" = dev ] || exit 2
+    has_line "$addr6" "$6|$4" || exit 2
+    del_line "$addr6" "$6|$4"
+    ;;
+  '-4 addr show dev '*)
+    [ "$#" -eq 5 ] && link_exists "$5" || exit 1
+    awk -F'|' -v iface="$5" '$1 == iface { print "    inet " $2 " scope global " iface }' "$addr4"
+    ;;
+  '-4 addr show')
+    awk -F'|' '{ print "    inet " $2 " scope global " $1 }' "$addr4"
+    ;;
+  '-4 addr replace '*)
+    [ "$#" -eq 6 ] && [ "$5" = dev ] && link_exists "$6" || exit 2
+    add_line "$addr4" "$6|$4"
+    ;;
+  '-4 addr del '*)
+    [ "$#" -eq 6 ] && [ "$5" = dev ] || exit 2
+    has_line "$addr4" "$6|$4" || exit 2
+    del_line "$addr4" "$6|$4"
+    ;;
+  '-4 route get 192.0.2.1')
+    if [ -f "$STUB_STATE_DIR/route4.mismatch" ]; then
+      printf '192.0.2.1 via 198.51.100.1 dev eth0 src 198.51.100.2\n'
+    else
+      tunnel_if=$(value TUN_IF)
+      source=$(awk -F'[|/]' -v iface="$tunnel_if" '$1 == iface { print $2; exit }' "$addr4")
+      [ -n "$source" ] || exit 1
+      printf '192.0.2.1 dev %s src %s\n' "$tunnel_if" "$source"
+    fi
+    ;;
+  '-4 route show table '*)
+    [ "$#" -eq 5 ] || exit 2
+    if [ -f "$STUB_STATE_DIR/route.s-output" ]; then
+      cat "$STUB_STATE_DIR/route.s-output"
+    elif [ -f "$STUB_STATE_DIR/route-show-extra" ]; then
+      awk -F'|' -v table="$5" '$1 == table { suffix=$4; if (suffix == "") suffix="proto static metric 10"; print $2 " dev " $3 " " suffix }' "$routes"
+    else
+      awk -F'|' -v table="$5" '$1 == table { line=$2 " dev " $3; if ($4 != "") line=line " " $4; print line }' "$routes"
+    fi
+    ;;
+  '-4 route replace table '*)
+    [ "$#" -ge 8 ] || exit 2
+    table=$5
+    destination=$6
+    shift 6
+    [ "$1" = dev ] && [ "$#" -ge 2 ] || exit 2
+    iface=$2
+    shift 2
+    attributes=$(join_args "$@")
+    awk -F'|' -v table="$table" -v destination="$destination" '!( $1 == table && $2 == destination )' "$routes" >"$routes.tmp"
+    if [ -n "$attributes" ]; then printf '%s|%s|%s|%s\n' "$table" "$destination" "$iface" "$attributes" >>"$routes.tmp"; else printf '%s|%s|%s\n' "$table" "$destination" "$iface" >>"$routes.tmp"; fi
+    mv "$routes.tmp" "$routes"
+    ;;
+  '-4 route del table '*)
+    [ "$#" -ge 8 ] && [ "$7" = dev ] || exit 2
+    table=$5
+    destination=$6
+    iface=$8
+    awk -F'|' -v table="$table" -v destination="$destination" -v iface="$iface" '
+      !deleted && $1 == table && $2 == destination && $3 == iface { deleted=1; next }
+      { print }
+      END { if (!deleted) exit 1 }
+    ' "$routes" >"$routes.tmp" || { rm -f "$routes.tmp"; exit 2; }
+    mv "$routes.tmp" "$routes"
+    ;;
+  '-4 rule show')
+    awk -F'|' '{ print $1 ": from all iif " $2 " lookup " $3 }' "$rules"
+    ;;
+  '-4 rule add pref '*)
+    [ "$#" -eq 9 ] && [ "$6" = iif ] && [ "$8" = lookup ] || exit 2
+    if [ "${STUB_FAIL_RULE_PREF:-}" = "$5" ]; then exit 70; fi
+    stub_rule="$5|$7|$9"
+    awk -F'|' -v pref="$5" -v record="$stub_rule" '!inserted && $1 > pref { print record; inserted=1 } { print } END { if (!inserted) print record }' "$rules" >"$rules.tmp"
+    mv "$rules.tmp" "$rules"
+    ;;
+  '-4 rule del pref '*)
+    [ "$#" -eq 9 ] && [ "$6" = iif ] && [ "$8" = lookup ] || exit 2
+    has_line "$rules" "$5|$7|$9" || exit 2
+    del_one_line "$rules" "$5|$7|$9"
+    ;;
+  *)
+    printf 'unsupported ip invocation: %s\n' "$*" >&2
+    exit 2
+    ;;
+esac

@@ -1,0 +1,7 @@
+#!/bin/sh
+[ -z "${CHILD_ENV_LOG:-}" ] || { printf '%s\n' '--- ip ---' >>"$CHILD_ENV_LOG"; env >>"$CHILD_ENV_LOG"; }
+if [ "$1 $2 $3" = '-6 route get' ] && [ "$4" = '2001:db8:ffff::1' ]; then
+  printf '2001:db8:ffff::1 via fe80::1 dev eth9 src 2001:db8:1234:30:abcd::1 metric 1024\n'
+  exit 0
+fi
+exit 1

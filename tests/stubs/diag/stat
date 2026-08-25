@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+
+if [ -x /opt/homebrew/bin/gstat ]; then
+  exec /opt/homebrew/bin/gstat "$@"
+fi
+
+if [ -x /bin/stat ]; then
+  exec /bin/stat "$@"
+fi
+
+if command -v gstat >/dev/null 2>&1; then
+  exec gstat "$@"
+fi
+exec /usr/bin/stat "$@"

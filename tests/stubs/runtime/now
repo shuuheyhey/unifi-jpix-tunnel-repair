@@ -1,0 +1,17 @@
+#!/bin/sh
+set -u
+
+[ "$#" -eq 0 ] || exit 64
+if [ -n "${RUNTIME_CLOCK_SEQUENCE:-}" ] && [ -f "$RUNTIME_CLOCK_SEQUENCE" ]; then
+  count=$(cat "${RUNTIME_CLOCK_COUNTER:?}" 2>/dev/null || :)
+  [ -n "$count" ] || count=0
+  count=$((count + 1))
+  printf '%s\n' "$count" >"$RUNTIME_CLOCK_COUNTER"
+  value=$(sed -n "${count}p" "$RUNTIME_CLOCK_SEQUENCE")
+  [ -n "$value" ] || value=$(sed -n '$p' "$RUNTIME_CLOCK_SEQUENCE")
+  [ -n "$value" ] || exit 65
+  printf '%s\n' "$value"
+  exit 0
+fi
+[ -n "${RUNTIME_CLOCK_FILE:-}" ] && [ -f "$RUNTIME_CLOCK_FILE" ] || exit 65
+cat "$RUNTIME_CLOCK_FILE"

@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+{
+  printf 'systemctl'
+  for arg do
+    printf ' %s' "$arg"
+  done
+  printf '\n'
+} >>"$STUB_LOG"
+
+exit 0

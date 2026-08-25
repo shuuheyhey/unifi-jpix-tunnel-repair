@@ -1,0 +1,134 @@
+#!/bin/sh
+set -eu
+
+: "${STUB_STATE_DIR:?}"
+: "${STUB_LOG:?}"
+printf 'iptables' >>"$STUB_LOG"
+for stub_arg in "$@"; do printf ' %s' "$stub_arg" >>"$STUB_LOG"; done
+printf '\n' >>"$STUB_LOG"
+
+stub_invocation="iptables $*"
+stub_number=$(awk -v wanted="$stub_invocation" '$0 == wanted { count++ } END { print count + 0 }' "$STUB_LOG")
+if [ -f "$STUB_STATE_DIR/lock-at.invocations" ] &&
+  grep -F -x -- "$stub_number|$stub_invocation" "$STUB_STATE_DIR/lock-at.invocations" >/dev/null 2>&1; then
+  exit 4
+fi
+if [ -f "$STUB_STATE_DIR/fail-at.invocations" ] &&
+  grep -F -x -- "$stub_number|$stub_invocation" "$STUB_STATE_DIR/fail-at.invocations" >/dev/null 2>&1; then
+  exit 71
+fi
+if [ -f "$STUB_STATE_DIR/fail-once.invocations" ] &&
+  grep -F -x -- "$stub_invocation" "$STUB_STATE_DIR/fail-once.invocations" >/dev/null 2>&1; then
+  awk -v invocation="$stub_invocation" '$0 != invocation { print }' \
+    "$STUB_STATE_DIR/fail-once.invocations" >"$STUB_STATE_DIR/fail-once.tmp"
+  mv "$STUB_STATE_DIR/fail-once.tmp" "$STUB_STATE_DIR/fail-once.invocations"
+  exit 71
+fi
+
+if [ -f "$STUB_STATE_DIR/fail.invocations" ] && grep -F -x -- "iptables $*" "$STUB_STATE_DIR/fail.invocations" >/dev/null 2>&1; then
+  exit 71
+fi
+if [ -f "$STUB_STATE_DIR/absent.invocations" ] && grep -F -x -- "iptables $*" "$STUB_STATE_DIR/absent.invocations" >/dev/null 2>&1; then
+  exit 1
+fi
+
+state=$STUB_STATE_DIR/iptables.state
+chains=$STUB_STATE_DIR/iptables.chains
+
+has_chain() { grep -F -x -- "$1|$2" "$chains" >/dev/null 2>&1; }
+has_rule() { grep -F -x -- "$1|$2|$3" "$state" >/dev/null 2>&1; }
+rule_text() {
+  stub_text=
+  while [ "$#" -gt 0 ]; do
+    if [ -n "$stub_text" ]; then stub_text="$stub_text $1"; else stub_text=$1; fi
+    shift
+  done
+  printf '%s\n' "$stub_text"
+}
+insert_rule() {
+  stub_table=$1 stub_chain=$2 stub_position=$3 stub_rule=$4
+  case $stub_position in ''|*[!0-9]*|0) exit 2 ;; esac
+  stub_count=$(awk -F'|' -v table="$stub_table" -v chain="$stub_chain" \
+    '$1 == table && $2 == chain { count++ } END { print count + 0 }' "$state")
+  [ "$stub_position" -le $((stub_count + 1)) ] || exit 1
+  awk -F'|' -v table="$stub_table" -v chain="$stub_chain" -v position="$stub_position" \
+    -v record="$stub_table|$stub_chain|$stub_rule" '
+      !inserted && seen_chain && !($1 == table && $2 == chain) && chain_position + 1 == position {
+        print record
+        inserted=1
+      }
+      $1 == table && $2 == chain {
+        seen_chain=1
+        chain_position++
+        if (!inserted && chain_position == position) { print record; inserted=1 }
+      }
+      { print }
+      END { if (!inserted) print record }
+    ' "$state" >"$state.tmp"
+  mv "$state.tmp" "$state"
+}
+signal_after_if_requested() {
+  [ -f "$STUB_STATE_DIR/signal-after.invocations" ] || return 0
+  grep -F -x -- "$stub_invocation" "$STUB_STATE_DIR/signal-after.invocations" >/dev/null 2>&1 || return 0
+  awk -v invocation="$stub_invocation" '$0 != invocation { print }' \
+    "$STUB_STATE_DIR/signal-after.invocations" >"$STUB_STATE_DIR/signal-after.tmp"
+  mv "$STUB_STATE_DIR/signal-after.tmp" "$STUB_STATE_DIR/signal-after.invocations"
+  kill -TERM "$PPID"
+  sleep 1
+}
+
+[ "${1:-}" = -t ] && [ "$#" -ge 3 ] || exit 2
+table=$2
+operation=$3
+case $operation in
+  -S)
+    custom_output=$STUB_STATE_DIR/iptables.$table.s-output
+    if [ "$#" -eq 4 ]; then
+      chain=$4
+      has_chain "$table" "$chain" || exit 1
+      if [ -f "$custom_output" ]; then
+        awk -v chain="$chain" '$1 == "-A" && $2 == chain { print }' "$custom_output"
+      else
+        awk -F'|' -v table="$table" -v chain="$chain" '$1 == table && $2 == chain { print "-A " chain " " $3 }' "$state" |
+          if [ -f "$STUB_STATE_DIR/firewall.canonicalize" ]; then sed 's/ -p tcp / --protocol tcp /g'; else cat; fi
+      fi
+    elif [ "$#" -eq 3 ]; then
+      if [ -f "$custom_output" ]; then
+        cat "$custom_output"
+      else
+        awk -F'|' -v table="$table" '$1 == table { print "-A " $2 " " $3 }' "$state" |
+          if [ -f "$STUB_STATE_DIR/firewall.canonicalize" ]; then sed 's/ -p tcp / --protocol tcp /g'; else cat; fi
+      fi
+    else
+      exit 2
+    fi
+    ;;
+  -C|-A|-D|-I)
+    [ "$#" -ge 5 ] || exit 2
+    chain=$4
+    has_chain "$table" "$chain" || exit 1
+    shift 4
+    position=
+    if [ "$operation" = -I ]; then
+      [ "$#" -ge 2 ] || exit 2
+      position=$1
+      shift
+    fi
+    rule=$(rule_text "$@")
+    case $operation in
+      -C) has_rule "$table" "$chain" "$rule" ;;
+      -A) printf '%s|%s|%s\n' "$table" "$chain" "$rule" >>"$state" ;;
+      -I) insert_rule "$table" "$chain" "$position" "$rule" ;;
+      -D)
+        has_rule "$table" "$chain" "$rule" || exit 1
+        awk -F'|' -v table="$table" -v chain="$chain" -v rule="$rule" '
+          !deleted && $1 == table && $2 == chain && $3 == rule { deleted=1; next }
+          { print }
+        ' "$state" >"$state.tmp"
+        mv "$state.tmp" "$state"
+        signal_after_if_requested
+        ;;
+    esac
+    ;;
+  *) exit 2 ;;
+esac

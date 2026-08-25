@@ -1,0 +1,12 @@
+#!/bin/sh
+set -u
+
+[ "$#" -eq 1 ] || exit 64
+case $1 in ''|*[!0-9]*) exit 64 ;; esac
+[ -z "${RUNTIME_SLEEP_LOG:-}" ] || printf '%s\n' "$1" >>"$RUNTIME_SLEEP_LOG"
+if [ -n "${RUNTIME_CLOCK_FILE:-}" ]; then
+  current=$(cat "$RUNTIME_CLOCK_FILE" 2>/dev/null || printf '0\n')
+  case $current in ''|*[!0-9]*) exit 65 ;; esac
+  printf '%s\n' "$((current + $1))" >"$RUNTIME_CLOCK_FILE"
+fi
+exit "${RUNTIME_SLEEP_STATUS:-0}"

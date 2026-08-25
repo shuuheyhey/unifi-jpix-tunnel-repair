@@ -1,0 +1,10 @@
+#!/bin/sh
+set -u
+
+[ "$*" = '-ts monitor link address route' ] || exit 64
+[ -n "${RUNTIME_MONITOR_EXIT_PID_FILE:-}" ] || exit 64
+[ -n "${RUNTIME_MONITOR_EXIT_ARGS_LOG:-}" ] || exit 64
+printf '%s\n' "$$" >"$RUNTIME_MONITOR_EXIT_PID_FILE"
+printf '%s\n' "$*" >>"$RUNTIME_MONITOR_EXIT_ARGS_LOG"
+[ -z "${RUNTIME_MONITOR_EXIT_RECORD:-}" ] || printf '%s\n' "$RUNTIME_MONITOR_EXIT_RECORD"
+exit "${RUNTIME_MONITOR_EXIT_STATUS:-0}"

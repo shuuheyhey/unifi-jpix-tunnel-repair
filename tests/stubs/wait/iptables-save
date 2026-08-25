@@ -1,0 +1,3 @@
+#!/bin/sh
+printf 'iptables-save\n' >>"$WAIT_EXTERNAL_LOG"
+exit 97

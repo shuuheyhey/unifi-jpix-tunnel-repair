@@ -1,0 +1,3 @@
+#!/bin/sh
+printf 'ip6tables-save\n' >>"$WAIT_EXTERNAL_LOG"
+exit 97

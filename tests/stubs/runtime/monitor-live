@@ -1,0 +1,12 @@
+#!/bin/sh
+set -u
+
+[ "$*" = '-ts monitor link address route' ] || exit 64
+[ -n "${RUNTIME_LIVE_MONITOR_PID_FILE:-}" ] || exit 64
+[ -n "${RUNTIME_LIVE_MONITOR_RECORD:-}" ] || exit 64
+if [ "${RUNTIME_LIVE_MONITOR_IGNORE_TERM:-0}" = 1 ]; then
+  trap '' HUP INT TERM
+fi
+printf '%s\n' "$$" >"$RUNTIME_LIVE_MONITOR_PID_FILE"
+printf '%s\n' "$RUNTIME_LIVE_MONITOR_RECORD"
+exec /bin/sleep 30

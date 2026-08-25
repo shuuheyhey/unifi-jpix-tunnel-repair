@@ -1,0 +1,62 @@
+#!/bin/sh
+set -eu
+
+: "${STUB_STATE_DIR:?}"
+: "${STUB_LOG:?}"
+printf 'ip6tables-save\n' >>"$STUB_LOG"
+
+stub_invocation=ip6tables-save
+stub_number=$(awk -v wanted="$stub_invocation" '$0 == wanted { count++ } END { print count + 0 }' "$STUB_LOG")
+if [ -f "$STUB_STATE_DIR/fail-at.invocations" ] &&
+  grep -F -x -- "$stub_number|$stub_invocation" "$STUB_STATE_DIR/fail-at.invocations" >/dev/null 2>&1; then
+  exit 71
+fi
+if [ -f "$STUB_STATE_DIR/fail-once.invocations" ] &&
+  grep -F -x -- "$stub_invocation" "$STUB_STATE_DIR/fail-once.invocations" >/dev/null 2>&1; then
+  awk -v invocation="$stub_invocation" '$0 != invocation { print }' \
+    "$STUB_STATE_DIR/fail-once.invocations" >"$STUB_STATE_DIR/fail-once.tmp"
+  mv "$STUB_STATE_DIR/fail-once.tmp" "$STUB_STATE_DIR/fail-once.invocations"
+  exit 71
+fi
+if [ -f "$STUB_STATE_DIR/fail.invocations" ] &&
+  grep -F -x -- "$stub_invocation" "$STUB_STATE_DIR/fail.invocations" >/dev/null 2>&1; then
+  exit 71
+fi
+
+if [ -f "$STUB_STATE_DIR/ip6tables-save.output" ]; then
+  cat "$STUB_STATE_DIR/ip6tables-save.output"
+  exit 0
+fi
+
+state=$STUB_STATE_DIR/ip6tables.state
+extra_state=$STUB_STATE_DIR/ip6tables-extra.state
+chains=$STUB_STATE_DIR/ip6tables.chains
+for table in raw mangle nat filter security; do
+  printf '*%s\n' "$table"
+  {
+    case $table in
+      raw)
+        printf '%s\n' 'PREROUTING|ACCEPT' 'OUTPUT|ACCEPT'
+        ;;
+      mangle)
+        printf '%s\n' 'PREROUTING|ACCEPT' 'INPUT|ACCEPT' 'FORWARD|ACCEPT' 'OUTPUT|ACCEPT' 'POSTROUTING|ACCEPT'
+        ;;
+      nat)
+        printf '%s\n' 'PREROUTING|ACCEPT' 'INPUT|ACCEPT' 'OUTPUT|ACCEPT' 'POSTROUTING|ACCEPT'
+        ;;
+      filter|security)
+        printf '%s\n' 'INPUT|ACCEPT' 'FORWARD|ACCEPT' 'OUTPUT|ACCEPT'
+        ;;
+    esac
+    if [ "$table" = filter ]; then
+      awk '{ print $1 "|-" }' "$chains"
+      awk -F'|' '{ print $1 "|-" }' "$state"
+    fi
+    awk -F'|' -v table="$table" '$1 == table { print $2 "|-" }' "$extra_state"
+  } | awk -F'|' '!seen[$1]++ { printf ":%s %s [0:0]\n", $1, $2 }'
+  if [ "$table" = filter ]; then
+    awk -F'|' '{ print "-A " $1 " " $2 }' "$state"
+  fi
+  awk -F'|' -v table="$table" '$1 == table { print "-A " $2 " " $3 }' "$extra_state"
+  printf 'COMMIT\n'
+done

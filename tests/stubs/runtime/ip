@@ -1,0 +1,35 @@
+#!/bin/sh
+set -u
+
+[ -z "${RUNTIME_COMMAND_LOG:-}" ] || printf 'ip %s\n' "$*" >>"$RUNTIME_COMMAND_LOG"
+[ -z "${RUNTIME_CHILD_ENV_LOG:-}" ] || env >>"$RUNTIME_CHILD_ENV_LOG"
+
+case "$*" in
+  'link show dev br0'|'link show dev br10'|'link show dev eth9'|'link show dev ip6tnl1')
+    printf '1: %s: <UP,LOWER_UP> mtu 1500 state UP\n' "$4"
+    exit 0
+    ;;
+  '-6 route get '*)
+    if [ -n "${RUNTIME_ROUTE_FILE:-}" ] && [ -f "$RUNTIME_ROUTE_FILE" ]; then
+      cat "$RUNTIME_ROUTE_FILE"
+    else
+      printf '2001:db8:ffff::1 via fe80::1 dev eth9 src 2001:db8:1234:31:abcd::1 metric 1024\n'
+    fi
+    exit 0
+    ;;
+  '-6 addr show dev eth9 scope global')
+    if [ -n "${RUNTIME_ADDR_FILE:-}" ] && [ -f "$RUNTIME_ADDR_FILE" ]; then
+      cat "$RUNTIME_ADDR_FILE"
+    else
+      printf '    inet6 2001:db8:1234:31:abcd::1/64 scope global dynamic\n       valid_lft forever preferred_lft forever\n'
+    fi
+    exit 0
+    ;;
+  '-ts monitor link address route')
+    [ -n "${RUNTIME_MONITOR_FILE:-}" ] && [ -f "$RUNTIME_MONITOR_FILE" ] || exit 2
+    cat "$RUNTIME_MONITOR_FILE"
+    exit "${RUNTIME_MONITOR_STATUS:-0}"
+    ;;
+esac
+
+exit 64

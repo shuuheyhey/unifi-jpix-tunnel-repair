@@ -1,0 +1,102 @@
+#!/bin/sh
+set -eu
+
+round=1
+if [ -f "$WAIT_ROUND_FILE" ]; then
+  IFS= read -r round <"$WAIT_ROUND_FILE"
+fi
+
+{
+  printf 'round=%s ip' "$round"
+  for arg in "$@"; do printf ' %s' "$arg"; done
+  printf '\n'
+} >>"$WAIT_IP_LOG"
+
+for arg in "$@"; do
+  case $arg in add|change|replace|set|del) exit 97 ;; esac
+done
+
+ready=0
+[ "$round" -ge "$WAIT_READY_ROUND" ] && ready=1
+
+case $* in
+  'link show dev br0')
+    printf '4: br0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 state UP\n'
+    ;;
+  '-o link show dev eth9')
+    case $WAIT_LINK_STYLE in
+      up) printf '2: eth9: <BROADCAST,MULTICAST,UP> mtu 1500 state UP\n' ;;
+      lower) printf '2: eth9: <BROADCAST,MULTICAST,LOWER_UP> mtu 1500 state DOWN\n' ;;
+      down) printf '2: eth9: <BROADCAST,MULTICAST> mtu 1500 state DOWN\n' ;;
+      *) exit 64 ;;
+    esac
+    ;;
+  '-6 addr show dev eth9 scope global')
+    [ "$ready" -eq 1 ] || exit 0
+    case $WAIT_ADDR_STYLE in
+      preferred)
+        printf '    inet6 2001:db8:1234:30::dead/64 scope global tentative\n'
+        printf '       valid_lft forever preferred_lft forever\n'
+        printf '    inet6 %s/64 scope global dynamic\n' "$WAIT_ADDR_SOURCE"
+        printf '       valid_lft forever preferred_lft forever\n'
+        ;;
+      tentative|tentative-only)
+        printf '    inet6 %s/64 scope global tentative\n' "$WAIT_ADDR_SOURCE"
+        printf '       valid_lft forever preferred_lft forever\n'
+        if [ "$WAIT_ADDR_STYLE" = tentative ]; then
+          printf '    inet6 %s/64 scope global dynamic\n' "$WAIT_OTHER_SOURCE"
+          printf '       valid_lft forever preferred_lft forever\n'
+        fi
+        ;;
+      deprecated|deprecated-only)
+        printf '    inet6 %s/64 scope global deprecated\n' "$WAIT_ADDR_SOURCE"
+        printf '       valid_lft forever preferred_lft 0sec\n'
+        if [ "$WAIT_ADDR_STYLE" = deprecated ]; then
+          printf '    inet6 %s/64 scope global dynamic\n' "$WAIT_OTHER_SOURCE"
+          printf '       valid_lft forever preferred_lft forever\n'
+        fi
+        ;;
+      *) exit 64 ;;
+    esac
+    ;;
+  '-6 route show default')
+    [ "$ready" -eq 1 ] || exit 0
+    printf 'default via fe80::1 dev %s proto ra metric 1024\n' "$WAIT_DEFAULT_DEV"
+    ;;
+  '-d -6 tunnel show ip6tnl1')
+    [ "$ready" -eq 1 ] || exit 1
+    printf 'ip6tnl1: %s remote 2001:db8:ffff::1 local 2001:db8:1234:30::1 hoplimit 64\n' "$WAIT_TUN_MODE"
+    ;;
+  '-6 route get '*)
+    [ "$*" = "-6 route get $WAIT_BR_DESTINATION" ] || exit 64
+    [ "$ready" -eq 1 ] || exit 1
+    route_count_file=$CASE/route-count.$round
+    if [ -f "$route_count_file" ]; then IFS= read -r route_count <"$route_count_file"; else route_count=0; fi
+    route_count=$((route_count + 1))
+    printf '%s\n' "$route_count" >"$route_count_file"
+    case $WAIT_BR_STYLE in
+      normal)
+        printf '%s via fe80::1 dev eth9 src %s metric 1024\n' "$WAIT_BR_DESTINATION" "$WAIT_ROUTE_SOURCE"
+        ;;
+      no-source)
+        printf '%s via fe80::1 dev eth9 metric 1024\n' "$WAIT_BR_DESTINATION"
+        ;;
+      wrong-device)
+        printf '%s via fe80::1 dev br0 src %s metric 1024\n' "$WAIT_BR_DESTINATION" "$WAIT_ROUTE_SOURCE"
+        ;;
+      split)
+        printf '%s via fe80::1 dev eth9 metric 1024\n' "$WAIT_BR_DESTINATION"
+        printf '%s via fe80::1 dev br0 src %s metric 1024\n' "$WAIT_BR_DESTINATION" "$WAIT_ROUTE_SOURCE"
+        ;;
+      churn)
+        if [ "$route_count" -eq 1 ]; then
+          printf '%s via fe80::1 dev eth9 src fe80::1 metric 1024\n' "$WAIT_BR_DESTINATION"
+        else
+          printf '%s via fe80::1 dev eth9 src %s metric 1024\n' "$WAIT_BR_DESTINATION" "$WAIT_ROUTE_SOURCE"
+        fi
+        ;;
+      *) exit 64 ;;
+    esac
+    ;;
+  *) exit 64 ;;
+esac

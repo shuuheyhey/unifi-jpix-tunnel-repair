@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+[ -z "${CHILD_ENV_LOG:-}" ] || { printf '%s\n' '--- sed ---' >>"$CHILD_ENV_LOG"; env >>"$CHILD_ENV_LOG"; }
+[ "${STUB_CURL_SED_FAIL:-0}" = 0 ] || exit 2
+exec /usr/bin/sed "$@"

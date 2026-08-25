@@ -1,0 +1,38 @@
+#!/bin/sh
+set -eu
+: "${IP_ARGV_LOG:?}"
+[ -z "${CHILD_ENV_LOG:-}" ] || { printf '%s\n' '--- ip ---' >>"$CHILD_ENV_LOG"; env >>"$CHILD_ENV_LOG"; }
+for ip_arg do printf '%s\0' "$ip_arg" >>"$IP_ARGV_LOG"; done
+
+if [ "$#" -eq 4 ] && [ "$1 $2 $3 $4" = '-6 route get 2001:db8:ffff::1' ]; then
+  printf '%s\n' '2001:db8:ffff::1 from :: via fe80::1 dev eth9 src 2001:db8:1234:30:abcd::1 metric 1024'
+  exit 0
+fi
+if [ "$#" -eq 4 ] && [ "$1 $2 $3" = 'link show dev' ] && [ "$4" = br0 ]; then
+  exit 0
+fi
+if [ "$#" -eq 5 ] && [ "$1 $2 $3 $4 $5" = '-6 addr show dev eth9' ]; then
+  case ${IP_ADDR_MODE:-present} in
+    present) printf '%s\n' '    inet6 2001:db8:1234:30:cb:71:2a00:0/128 scope global dynamic' ;;
+    prefix64) printf '%s\n' '    inet6 2001:db8:1234:30:cb:71:2a00:0/64 scope global dynamic' ;;
+    prefix-leading-zero) printf '%s\n' '    inet6 2001:db8:1234:30:cb:71:2a00:0/0128 scope global dynamic' ;;
+    prefix-oversized) printf '%s\n' '    inet6 2001:db8:1234:30:cb:71:2a00:0/999999999999999999999999 scope global dynamic' ;;
+    prefix-nonnumeric) printf '%s\n' '    inet6 2001:db8:1234:30:cb:71:2a00:0/one-two-eight scope global dynamic' ;;
+    malformed-address64) printf '%s\n' '    inet6 not-an-ip/64 scope global dynamic' ;;
+    invalid-hex64) printf '%s\n' '    inet6 2001:db8:1234:30::gg/64 scope global dynamic' ;;
+    valid-compressed64) printf '%s\n' '    inet6 2001:db8:1234:30::99/64 scope global dynamic' ;;
+    missing-separator) printf '%s\n' '    inet6 2001:db8:1234:30::99 scope global dynamic' ;;
+    extra-separator) printf '%s\n' '    inet6 2001:db8:1234:30::99/64/extra scope global dynamic' ;;
+    malformed64-then-present) printf '%s\n' '    inet6 not-an-ip/64 scope global' '    inet6 2001:db8:1234:30:cb:71:2a00:0/128 scope global' ;;
+    present-then-malformed64) printf '%s\n' '    inet6 2001:db8:1234:30:cb:71:2a00:0/128 scope global' '    inet6 not-an-ip/64 scope global' ;;
+    valid64-then-present) printf '%s\n' '    inet6 2001:db8:1234:30::99/64 scope global' '    inet6 2001:db8:1234:30:cb:71:2a00:0/128 scope global' ;;
+    other) printf '%s\n' '    inet6 2001:db8:1234:30::99/128 scope global dynamic' ;;
+    malformed) printf '%s\n' '    inet6 2001:db8:1234:30::gg/128 scope global dynamic' ;;
+    multiline-malformed) printf '%s\n' '    inet6 2001:db8:1234:30::99/128 scope global' '    inet6 2001:db8:1234:30::gg/128 scope global' ;;
+    absent) : ;;
+    error) exit 2 ;;
+    *) exit 98 ;;
+  esac
+  exit 0
+fi
+exit 2

@@ -1,0 +1,23 @@
+#!/bin/sh
+set -u
+
+[ -n "${RUNTIME_UPDATE_LOG:-}" ] || exit 64
+printf '%s\n' "$*" >>"$RUNTIME_UPDATE_LOG"
+[ -z "${RUNTIME_CHILD_ENV_LOG:-}" ] || env >>"$RUNTIME_CHILD_ENV_LOG"
+
+if [ -n "${RUNTIME_UPDATE_TIME_LOG:-}" ]; then
+  [ -n "${RUNTIME_CLOCK_FILE:-}" ] && [ -f "$RUNTIME_CLOCK_FILE" ] || exit 67
+  update_clock=$(cat "$RUNTIME_CLOCK_FILE") || exit 67
+  case $update_clock in ''|*[!0-9]*|0[0-9]*) exit 67 ;; esac
+  printf '%s\n' "$update_clock" >>"$RUNTIME_UPDATE_TIME_LOG" || exit 67
+fi
+
+update_advance=${RUNTIME_UPDATE_ADVANCE:-0}
+case $update_advance in ''|*[!0-9]*|0[0-9]*) exit 68 ;; esac
+if [ "$update_advance" -gt 0 ]; then
+  [ -n "${RUNTIME_CLOCK_FILE:-}" ] && [ -f "$RUNTIME_CLOCK_FILE" ] || exit 68
+  update_clock=$(cat "$RUNTIME_CLOCK_FILE") || exit 68
+  case $update_clock in ''|*[!0-9]*|0[0-9]*) exit 68 ;; esac
+  printf '%s\n' "$((update_clock + update_advance))" >"$RUNTIME_CLOCK_FILE" || exit 68
+fi
+exit "${RUNTIME_UPDATE_STATUS:-0}"

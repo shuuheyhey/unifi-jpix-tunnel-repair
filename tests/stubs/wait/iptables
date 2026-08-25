@@ -1,0 +1,12 @@
+#!/bin/sh
+{
+  printf 'iptables'
+  for arg in "$@"; do printf ' %s' "$arg"; done
+  printf '\n'
+} >>"$WAIT_EXTERNAL_LOG"
+for arg in "$@"; do
+  case $arg in
+    -A|-I|-R|-D|-F|-Z|-N|-X|-P|-E|--append|--insert|--replace|--delete|--flush|--zero|--new-chain|--delete-chain|--policy|--rename-chain) exit 97 ;;
+  esac
+done
+exit 0

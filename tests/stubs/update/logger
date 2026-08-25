@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+[ -z "${CHILD_ENV_LOG:-}" ] || { printf '%s\n' '--- logger ---' >>"$CHILD_ENV_LOG"; env >>"$CHILD_ENV_LOG"; }
+exit 0

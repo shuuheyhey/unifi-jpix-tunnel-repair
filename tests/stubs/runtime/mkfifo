@@ -1,0 +1,7 @@
+#!/bin/sh
+set -u
+
+[ -n "${RUNTIME_MKFIFO_LOG:-}" ] || exit 64
+printf '%s\n' "$*" >>"$RUNTIME_MKFIFO_LOG"
+/usr/bin/mkfifo "$@" || exit $?
+[ -z "${RUNTIME_MKFIFO_METADATA_LOG:-}" ] || stat -c '%u:%a:%F' "$1" >>"$RUNTIME_MKFIFO_METADATA_LOG"

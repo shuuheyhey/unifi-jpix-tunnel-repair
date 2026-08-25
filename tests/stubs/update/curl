@@ -1,0 +1,128 @@
+#!/bin/sh
+set -eu
+
+: "${CURL_ARGV_LOG:?}"
+: "${CURL_STDIN_LOG:?}"
+: "${CURL_RESPONSES:?}"
+: "${CURL_COUNT_FILE:?}"
+[ -z "${CHILD_ENV_LOG:-}" ] || { printf '%s\n' '--- curl ---' >>"$CHILD_ENV_LOG"; env >>"$CHILD_ENV_LOG"; }
+
+for curl_arg do
+  printf '%s\0' "$curl_arg" >>"$CURL_ARGV_LOG"
+done
+
+curl_count=0
+[ ! -f "$CURL_COUNT_FILE" ] || curl_count=$(cat "$CURL_COUNT_FILE")
+curl_count=$((curl_count + 1))
+printf '%s\n' "$curl_count" >"$CURL_COUNT_FILE"
+
+curl_stdin=$CURL_STDIN_LOG.$curl_count
+cat >"$curl_stdin"
+cat "$curl_stdin" >>"$CURL_STDIN_LOG"
+curl_decoded=$curl_stdin.decoded
+if ! awk '
+    function config_unescape(value, result, position, character) {
+      result = ""
+      for (position = 1; position <= length(value); position++) {
+        character = substr(value, position, 1)
+        if (character == "\\") {
+          position++
+          if (position > length(value)) exit 94
+          character = substr(value, position, 1)
+        }
+        result = result character
+      }
+      return result
+    }
+    NR == 1 {
+      if ($0 !~ /^url = ".*"$/) exit 93
+      next
+    }
+    NR == 2 {
+      if ($0 != "get") exit 93
+      next
+    }
+    NR == 3 {
+      if ($0 !~ /^data-urlencode = "user=.*"$/) exit 93
+    }
+    NR == 4 {
+      if ($0 !~ /^data-urlencode = "pass=.*"$/) exit 93
+    }
+    NR > 4 { exit 93 }
+    NR == 3 || NR == 4 {
+      value=$0
+      sub(/^data-urlencode = "/, "", value)
+      sub(/"$/, "", value)
+      print config_unescape(value)
+    }
+    END { if (NR != 4) exit 93 }
+  ' "$curl_stdin" >"$curl_decoded"; then
+  exit 93
+fi
+if [ -n "${CURL_DECODED_LOG:-}" ]; then
+  cat "$curl_decoded" >>"$CURL_DECODED_LOG"
+fi
+
+curl_output=
+curl_write_out=
+while [ "$#" -gt 0 ]; do
+  case $1 in
+    --config)
+      [ "$#" -ge 2 ] && [ "$2" = - ] || exit 97
+      shift 2
+      ;;
+    --proto|--proto-redir)
+      [ "$#" -ge 2 ] || exit 97
+      case $2 in '=https'|'=http') ;; *) exit 97 ;; esac
+      shift 2
+      ;;
+    --ipv6|--silent|--show-error)
+      shift
+      ;;
+    --interface)
+      [ "$#" -ge 2 ] && [ "$2" = '2001:0db8:1234:0030:00cb:0071:2a00:0000' ] || exit 97
+      shift 2
+      ;;
+    --connect-timeout)
+      [ "$#" -ge 2 ] && [ "$2" = 10 ] || exit 97
+      shift 2
+      ;;
+    --max-time)
+      [ "$#" -ge 2 ] && [ "$2" = 30 ] || exit 97
+      shift 2
+      ;;
+    --output)
+      [ "$#" -ge 2 ] || exit 97
+      curl_output=$2
+      shift 2
+      ;;
+    --write-out)
+      [ "$#" -ge 2 ] || exit 97
+      curl_write_out=$2
+      shift 2
+      ;;
+    --verbose|-v|--trace|--trace-ascii|--request|-X) exit 97 ;;
+    *) exit 97 ;;
+  esac
+done
+[ -n "$curl_output" ] && [ "$curl_write_out" = '%{http_code}' ] || exit 97
+if [ -n "${CURL_TEMP_MODE_LOG:-}" ]; then
+  printf '%s|%s\n' "$(stat -c %a "${curl_output%/*}")" "$(stat -c %a "$curl_output")" >>"$CURL_TEMP_MODE_LOG"
+fi
+
+curl_response=$(sed -n '1p' "$CURL_RESPONSES")
+[ -n "$curl_response" ] || exit 96
+sed '1d' "$CURL_RESPONSES" >"$CURL_RESPONSES.next"
+mv "$CURL_RESPONSES.next" "$CURL_RESPONSES"
+
+curl_transport=${curl_response%%|*}
+curl_rest=${curl_response#*|}
+curl_http=${curl_rest%%|*}
+curl_body=${curl_rest#*|}
+[ "$curl_body" != "$curl_rest" ] || exit 95
+cat "$curl_body" >"$curl_output"
+if [ "${CURL_PREPOSITION_ATOMIC_TMP:-0}" = 1 ]; then
+  mkdir "$V6PLUS_STATE_DIR/last-update.env.tmp.$PPID" 2>/dev/null || :
+fi
+printf '%s' "$curl_http"
+exit "$curl_transport"

@@ -1,0 +1,5 @@
+#!/bin/sh
+set -u
+
+[ -z "${RUNTIME_SYSTEMCTL_LOG:-}" ] || printf '%s\n' "$*" >>"$RUNTIME_SYSTEMCTL_LOG"
+exit 97

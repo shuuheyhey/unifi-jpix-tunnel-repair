@@ -1,0 +1,5 @@
+#!/bin/sh
+set -u
+
+[ "$#" -eq 1 ] && [ "$1" = 1 ] || exit 64
+/bin/sleep 0.01

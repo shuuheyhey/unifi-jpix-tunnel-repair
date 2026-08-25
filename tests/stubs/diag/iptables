@@ -1,0 +1,33 @@
+#!/bin/sh
+set -eu
+
+{
+  printf 'iptables'
+  for arg do
+    printf ' %s' "$arg"
+    case $arg in -A|-I|-D|-F|-N|-X) exit 97 ;; esac
+  done
+  printf '\n'
+} >>"$STUB_LOG"
+
+case $* in
+  '-t nat -S UBIOS_POSTROUTING_USER_HOOK')
+    [ "${DIAG_FALLBACK_CHAINS:-0}" != 1 ] || exit 1
+    printf '%s\n' '-N UBIOS_POSTROUTING_USER_HOOK'
+    printf '%s\n' '-A UBIOS_POSTROUTING_USER_HOOK -s 192.168.20.0/24 -m comment --comment v6plus:nat:br0 -j SNAT --to-source 203.0.113.42'
+    ;;
+  '-t nat -S POSTROUTING')
+    printf '%s\n' '-A POSTROUTING -s 192.168.20.0/24 -m comment --comment v6plus:nat:br0 -j SNAT --to-source 203.0.113.42'
+    ;;
+  '-t mangle -S')
+    printf '%s\n' '-A UBIOS_FORWARD_IN_USER -o ip6tnl1 -m comment --comment v6plus:mss -j TCPMSS --set-mss 1420'
+    if [ "${DIAG_SNAPSHOT_SECRETS:-0}" = 1 ]; then
+      printf '%s\n' '-A UBIOS_FORWARD_IN_USER -m comment --comment v6plus:redact?user=rule-user-MUST-NOT-LEAK&pass=rule-pass-MUST-NOT-LEAK -j ACCEPT'
+    fi
+    printf '%s\n' '-A UBIOS_FORWARD_IN_USER -j ACCEPT'
+    ;;
+  *)
+    printf 'unexpected iptables invocation: %s\n' "$*" >&2
+    exit 98
+    ;;
+esac
