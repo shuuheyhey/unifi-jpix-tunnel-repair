@@ -6,11 +6,11 @@
 
 `missing`または`absent`の項目を上から確認します。root、依存command、UniFi OS、Network package、native IPv6、DHCPv6-PD、IPIP6 tunnel、UniFi user chainの順に切り分けます。
 
-### `DHCPV6_PD_ROUTE=absent`
+### PD evidenceが両方`absent`
 
-通常はPD未成立の可能性があります。ただしUniFi OS 5の実機で、PD成功後にaggregate `/48`〜`/63` routeを残さず、LAN bridge向けglobal `/64`を`proto kernel`として展開する挙動を確認しています。現行preflightはこの状態を検出できません。
+`DHCPV6_PD_ROUTE=absent`かつ`DHCPV6_PD_LAN64_EVIDENCE=absent`なら、PD未成立の可能性があります。UniFi OS 5の実機で確認した、aggregate `/48`〜`/63` routeを残さずLAN bridge向けglobal `/64`を`proto kernel`として展開する状態は、後者を`present`として検出します。bridge以外のglobal `/64`はPD evidenceとして受理しません。
 
-この値だけでWAN設定を変更せず、実機上で次を追加確認します。
+この組み合わせを見てWAN設定を変更せず、実機上で次を追加確認します。
 
 - UniFi WAN IPv6がDHCPv6で、契約に合うprefix delegation sizeを要求している
 - DHCPv6 client processが稼働している

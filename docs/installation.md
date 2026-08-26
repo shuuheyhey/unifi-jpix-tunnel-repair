@@ -22,11 +22,11 @@ sudo ./scripts/unifi-jpix-tunnel-repair-preflight.sh
 
 終了statusは`ready-for-config`が`0`、`needs-attention`が`1`、使い方の誤りが`2`です。`PREFLIGHT_MODE=share-safe`がない出力は共有しないでください。
 
-### UniFi OS 5の既知の誤判定
+### UniFi OS 5のPD表現
 
-UniFi OS 5では、DHCPv6-PDが成功していてもaggregate routeを残さず、LAN bridge向け`/64`の`proto kernel` routeだけを展開する場合があります。この場合、現行preflightは`DHCPV6_PD_ROUTE=absent`と`RESULT=needs-attention`を返します。
+UniFi OS 5では、DHCPv6-PDが成功していてもaggregate routeを残さず、LAN bridge向け`/64`の`proto kernel` routeだけを展開する場合があります。この場合、preflightは`DHCPV6_PD_ROUTE=absent`と`DHCPV6_PD_LAN64_EVIDENCE=present`を返し、PD成立の証拠として扱います。WANやトンネルなどbridge以外の`/64`だけではこの証拠を`present`にしません。
 
-この1項目だけが`absent`の場合も自動的に無視せず、[Troubleshooting](troubleshooting.md)に沿ってUniFi WAN設定、DHCPv6 client、IA_PD、LANへのglobal `/64`配布を追加確認してください。
+両方が`absent`の場合は先へ進まず、[Troubleshooting](troubleshooting.md)に沿ってUniFi WAN設定、DHCPv6 client、IA_PD、LANへのglobal `/64`配布を追加確認してください。
 
 ## 3. ファイルを配置する
 

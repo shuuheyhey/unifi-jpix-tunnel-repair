@@ -3,6 +3,29 @@ printf 'ip %s\n' "$*" >>"$STUB_LOG"
 
 case ${PREFLIGHT_STUB_MODE:-ready}:$* in
   missing-ipv6:*) exit 0 ;;
+  expanded-pd:'-6 route show table all proto dhcp')
+    ;;
+  expanded-pd:'-6 route show table all proto ra')
+    printf 'default via fe80::1 dev eth9 proto ra metric 1024\n'
+    ;;
+  expanded-pd:'-6 route show table all proto kernel')
+    printf '2001:db8:1234:100::/64 dev br-secret proto kernel metric 256\n'
+    ;;
+  expanded-pd:'-d link show type bridge')
+    printf '10: br-secret: <BROADCAST,MULTICAST,UP> mtu 1500 state UP\n'
+    printf '    link/ether aa:bb:cc:dd:ee:ff brd ff:ff:ff:ff:ff:ff\n'
+    printf '    bridge forward_delay 1500 hello_time 200 max_age 2000\n'
+    ;;
+  wan-only-64:'-6 route show table all proto dhcp')
+    ;;
+  wan-only-64:'-6 route show table all proto ra')
+    printf 'default via fe80::1 dev eth9 proto ra metric 1024\n'
+    ;;
+  wan-only-64:'-6 route show table all proto kernel')
+    printf '2001:db8:1234:30::/64 dev eth9 proto kernel metric 256\n'
+    ;;
+  wan-only-64:'-d link show type bridge')
+    ;;
   *:'-6 route show default')
     printf 'default via fe80::1 dev eth9 proto ra metric 1024\n'
     ;;

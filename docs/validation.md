@@ -17,10 +17,11 @@ sudo ./scripts/unifi-jpix-tunnel-repair-preflight.sh
 - `PREFLIGHT_MODE=share-safe`
 - root、必須command、UniFi OS、Network packageが利用可能
 - native IPv6 default routeとglobal addressが存在
+- aggregate PD routeまたはLAN bridge上のglobal `/64` evidenceが存在
 - readyなIPIP6 tunnel候補が1つ以上
 - UniFiのIPv4 NAT user chainとIPv6 input user chainが存在
 
-`DHCPV6_PD_ROUTE=absent`は通常は中止条件です。ただしUniFi OS 5でaggregate PD routeを残さない既知の表現があります。[Troubleshooting](troubleshooting.md)の追加確認でPD成功を証明できるまで進まないでください。
+`DHCPV6_PD_ROUTE=absent`でも、UniFi OS 5がLAN bridge向けglobal `/64`だけを展開している場合は`DHCPV6_PD_LAN64_EVIDENCE=present`になります。両方が`absent`なら中止し、[Troubleshooting](troubleshooting.md)の追加確認でPD成功を証明できるまで進まないでください。
 
 ## 2. Configと権限
 

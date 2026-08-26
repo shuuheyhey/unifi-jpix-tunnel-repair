@@ -64,6 +64,7 @@ fi
 ipv6_default_route=absent
 ipv6_global_address=absent
 dhcpv6_pd_route=absent
+dhcpv6_pd_lan64_evidence=absent
 tunnel_candidate_count=0
 tunnel_ready_count=0
 if [ "$dependency_ip" = present ]; then
@@ -93,7 +94,42 @@ if [ "$dependency_ip" = present ]; then
     END { exit !found }
   '; then
     dhcpv6_pd_route=present
-  else
+  fi
+
+  if [ "$dhcpv6_pd_route" = absent ]; then
+    bridge_names=$(ip -d link show type bridge 2>/dev/null | awk -F ': ' '
+      /^[0-9]+: / {
+        name = $2
+        sub(/@.*/, "", name)
+        if (name != "") print name
+      }
+    ' || :)
+    if [ -n "$bridge_names" ] &&
+       ip -6 route show table all proto kernel 2>/dev/null | awk -v bridge_names="$bridge_names" '
+         BEGIN {
+           count = split(bridge_names, names, /[[:space:]]+/)
+           for (i = 1; i <= count; i++) bridge[names[i]] = 1
+         }
+         {
+           global64 = 0
+           device = ""
+           for (i = 1; i <= NF; i++) {
+             if ($i ~ /\//) {
+               split($i, prefix, "/")
+               if (prefix[1] ~ /^[23]/ && prefix[2] == 64) global64 = 1
+             }
+             if ($i == "dev" && i < NF) device = $(i + 1)
+           }
+           if (global64 && bridge[device]) found = 1
+         }
+         END { exit !found }
+       '; then
+      dhcpv6_pd_lan64_evidence=present
+    fi
+  fi
+
+  if [ "$dhcpv6_pd_route" = absent ] &&
+     [ "$dhcpv6_pd_lan64_evidence" = absent ]; then
     readiness=1
   fi
 
@@ -159,6 +195,7 @@ printf 'UNIFI_NETWORK_PACKAGE=%s\n' "$unifi_network_package"
 printf 'IPV6_DEFAULT_ROUTE=%s\n' "$ipv6_default_route"
 printf 'IPV6_GLOBAL_ADDRESS=%s\n' "$ipv6_global_address"
 printf 'DHCPV6_PD_ROUTE=%s\n' "$dhcpv6_pd_route"
+printf 'DHCPV6_PD_LAN64_EVIDENCE=%s\n' "$dhcpv6_pd_lan64_evidence"
 printf 'IPIP6_TUNNEL_CANDIDATE_COUNT=%s\n' "$tunnel_candidate_count"
 printf 'IPIP6_TUNNEL_READY_COUNT=%s\n' "$tunnel_ready_count"
 printf 'UNIFI_NAT_USER_CHAIN=%s\n' "$unifi_nat_user_chain"

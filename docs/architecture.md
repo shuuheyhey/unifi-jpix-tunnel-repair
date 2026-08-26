@@ -60,7 +60,7 @@ stateはshellとしてsourceせず、許可されたkeyと値だけを厳格に�
 
 ## UniFi OS 5で確認したPD表現
 
-実機ではDHCPv6-PDが成功していてもaggregate `/48`〜`/63` routeが残らず、LAN bridge向け`/64`が`proto kernel`として展開されました。現行preflightはaggregate routeだけを検出するため、`DHCPV6_PD_ROUTE=absent`を返します。この値だけでPD失敗と断定せず、[Troubleshooting](troubleshooting.md)の追加確認を実施してください。
+実機ではDHCPv6-PDが成功していてもaggregate `/48`〜`/63` routeが残らず、LAN bridge向け`/64`が`proto kernel`として展開されました。preflightはaggregate routeを`DHCPV6_PD_ROUTE`、bridge上のglobal `/64`を`DHCPV6_PD_LAN64_EVIDENCE`として別々に報告し、どちらかが`present`ならPD成立の証拠として扱います。WANやトンネルなどbridge以外の`/64`はfallback evidenceから除外します。
 
 ## Trust boundaries
 

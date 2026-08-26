@@ -8,10 +8,12 @@ ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 TMP_BASE=$(CDPATH= cd -- "${TMPDIR:-/tmp}" && pwd -P)
 TMP=${TMP_BASE%/}/unifi-jpix-tunnel-repair-preflight-test.$$
 trap 'chmod -R u+rwX "$TMP" 2>/dev/null || :; rm -rf "$TMP"' EXIT HUP INT TERM
-mkdir -p "$TMP/project" "$TMP/absent-project" "$TMP/missing-bin"
+mkdir -p "$TMP/project" "$TMP/absent-project" "$TMP/missing-bin" "$TMP/present-bin"
 ln -s "$(command -v awk)" "$TMP/missing-bin/awk"
+ln -s "$(command -v awk)" "$TMP/present-bin/curl"
+ln -s "$(command -v awk)" "$TMP/present-bin/systemctl"
 
-PREFLIGHT_PATH=$ROOT/tests/stubs/preflight:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+PREFLIGHT_PATH=$TMP/present-bin:$ROOT/tests/stubs/preflight:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 
 run_preflight() {
   RUN_OUTPUT=$TMP/output
@@ -42,6 +44,7 @@ test_start 'ready preflight reports required network capabilities'
 assert_contains "$output" 'IPV6_DEFAULT_ROUTE=present
 IPV6_GLOBAL_ADDRESS=present
 DHCPV6_PD_ROUTE=present
+DHCPV6_PD_LAN64_EVIDENCE=absent
 IPIP6_TUNNEL_CANDIDATE_COUNT=2
 IPIP6_TUNNEL_READY_COUNT=1'
 test_start 'ready preflight reports UniFi firewall hooks'
@@ -68,6 +71,29 @@ do
   esac
 done
 
+PREFLIGHT_STUB_MODE=expanded-pd run_preflight
+test_start 'expanded PD on a bridge is ready without an aggregate route'
+assert_eq "$RUN_STATUS" 0
+test_start 'expanded PD reports bridge evidence separately from aggregate route'
+assert_contains "$(cat "$RUN_OUTPUT")" 'DHCPV6_PD_ROUTE=absent
+DHCPV6_PD_LAN64_EVIDENCE=present'
+test_start 'expanded PD produces ready-for-config result'
+assert_contains "$(cat "$RUN_OUTPUT")" 'RESULT=ready-for-config'
+test_start 'expanded PD bridge identity stays private'
+case $(cat "$RUN_OUTPUT")$(cat "$RUN_ERROR") in
+  *br-secret*) fail 'bridge identity leaked' ;;
+  *) pass ;;
+esac
+
+PREFLIGHT_STUB_MODE=wan-only-64 run_preflight
+test_start 'global 64 on a non-bridge remains non-ready'
+assert_eq "$RUN_STATUS" 1
+test_start 'WAN-only 64 is not accepted as delegated LAN evidence'
+assert_contains "$(cat "$RUN_OUTPUT")" 'DHCPV6_PD_ROUTE=absent
+DHCPV6_PD_LAN64_EVIDENCE=absent'
+test_start 'WAN-only 64 produces needs-attention result'
+assert_contains "$(cat "$RUN_OUTPUT")" 'RESULT=needs-attention'
+
 test_start 'preflight invokes only the expected read-only command families'
 unexpected_calls=$(printf '%s\n' "$calls" | awk '
   $1 != "id" && $1 != "ubnt-device-info" && $1 != "dpkg-query" &&
@@ -89,6 +115,7 @@ test_start 'missing IPv6 prerequisites are reported without raw values'
 assert_contains "$(cat "$RUN_OUTPUT")" 'IPV6_DEFAULT_ROUTE=absent
 IPV6_GLOBAL_ADDRESS=absent
 DHCPV6_PD_ROUTE=absent
+DHCPV6_PD_LAN64_EVIDENCE=absent
 IPIP6_TUNNEL_CANDIDATE_COUNT=0
 IPIP6_TUNNEL_READY_COUNT=0'
 test_start 'missing IPv6 prerequisites produce needs-attention result'

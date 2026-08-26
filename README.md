@@ -9,7 +9,7 @@ UniFi Dream Machine Pro（UDM Pro）で、UniFiが生成したトンネルを補
 
 - ローカル自動テストは、設定解析、dry-run、適用、ロールバック、診断、更新通知、systemd連携を対象にしています。
 - UDM Pro・UniFi OS 5系でshare-safe preflightを実行し、native IPv6、UniFi管理トンネル候補、UniFi user chain、DHCPv6-PDの動作を確認しました。
-- UniFi OS 5の実機では、DHCPv6-PDが動作していてもaggregate routeを残さず、LAN bridge向け`/64`の`proto kernel` routeだけを展開する場合があります。現行preflightはこの状態を`DHCPV6_PD_ROUTE=absent`と誤判定します。
+- UniFi OS 5の実機では、DHCPv6-PDが動作していてもaggregate routeを残さず、LAN bridge向け`/64`の`proto kernel` routeだけを展開する場合があります。preflightはこの状態を`DHCPV6_PD_ROUTE=absent`、`DHCPV6_PD_LAN64_EVIDENCE=present`として区別し、PD成立の証拠として扱います。
 - 設定投入後のdry-run、固定IPv4通信、再起動復帰、ロールバックは未完了です。進捗は[Issue #1](https://github.com/shuuheyhey/unifi-jpix-tunnel-repair/issues/1)で管理します。
 
 実機検証が完了するまで、検証環境以外へ適用しないでください。
