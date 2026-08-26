@@ -2,6 +2,9 @@
 
 設定は`/data/unifi-jpix-tunnel-repair/config`へ置きます。directoryはroot所有・mode `0700`、各fileはroot所有・mode `0600`です。設定はshellとしてsourceされず、未知key、重複key、不正な値、symlink、安全でないownerやmodeがあれば処理を中止します。
 
+> [!IMPORTANT]
+> このschemaはJPIX「v6プラス」固定IPサービスの1 IP品目専用です。通常v6プラスのMAP-E、複数IP品目、HB46PP、他VNEのparameterを入力しないでください。同じ`BR`、`IID`、`username`、`password`という名称でも意味や配布方式が異なります。
+
 例ファイルのaddressはdocumentation用のsynthetic valueです。実値に置換しない限りvalidationで拒否されます。
 
 ## `gateway.conf`
@@ -20,6 +23,8 @@
 | `WATCH_INTERVAL_SECONDS` | watchの検査間隔 | 1秒以上の整数 |
 | `UPDATE_INTERVAL_SECONDS` | provider再通知の最小間隔 | 0で定期通知無効、最大10桁の整数 |
 | `OUTER_IPIP_ALLOW` | outer IPIP accept ruleの扱い | `auto`、`yes`、`no` |
+
+`STATIC_V4`は1個の固定IPv4だけを受け付け、常にtunnelへ`/32`で設定します。IPv4 prefix、address range、MAP-Eの共有IPv4やPSIDは表現できません。`BR_V6`と`IID`も契約情報として手動設定するため、HB46PP responseを取り込むinterfaceではありません。
 
 ### `OUTER_IPIP_ALLOW`
 
@@ -41,6 +46,8 @@ bridge-interface private-ipv4-cidr
 - 実機のinterface名とCIDRを公開Issueへ貼り付けないでください。
 
 ## `provider-update.conf`
+
+これはJPIX固定IPのCPE側IPv6 endpointをアドレス解決サーバーへ通知する設定です。HB46PPのprovisioning server設定ではありません。両者の違いは[サービスと方式の技術解説](service-and-protocols.md#47-アドレス解決サーバーへの通知)を参照してください。
 
 | Key | 内容 |
 | --- | --- |

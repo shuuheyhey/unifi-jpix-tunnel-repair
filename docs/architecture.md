@@ -2,7 +2,9 @@
 
 ## 目的
 
-UniFi OSが管理するnative IPv6接続を維持しながら、JPIX v6プラス固定IPに必要なIPv4 over IPv6の状態を補正します。UniFiの設定DBは編集せず、Linuxの既存トンネル、address、route、policy rule、netfilterへ限定して処理します。
+UniFi OSが管理するnative IPv6接続を維持しながら、JPIX「v6プラス」固定IPサービスの**固定IPv4 1個**に必要なIPv4 over IPv6の状態を補正します。UniFiの設定DBは編集せず、Linuxの既存トンネル、address、route、policy rule、netfilterへ限定して処理します。
+
+通常の「v6プラス」MAP-E、複数固定IPv4、HB46PP、他VNEのIPIPは対象外です。方式の違いと非対応理由は[サービスと方式の技術解説](service-and-protocols.md)を参照してください。
 
 ## 前提
 
@@ -12,7 +14,7 @@ UniFi OSが管理するnative IPv6接続を維持しながら、JPIX v6プラス
 - 固定IPv4へ送るLAN interfaceとCIDRを明示できる
 - root以外が配置済みscript、config、stateを書き換えられない
 
-独自トンネルの新規作成やUniFi管理トンネルの削除は、この設計の対象外です。
+独自トンネルの新規作成、UniFi管理トンネルの削除、受信DNAT、公開server用firewall、複数固定IPv4のroute/NATは、この設計の対象外です。
 
 ## コンポーネント
 
@@ -76,4 +78,7 @@ stateはshellとしてsourceせず、許可されたkeyと値だけを厳格に�
 - ONU、ホームゲートウェイ、上流routerの設定
 - DNS filteringや広告blocking
 - ISP契約情報、BR、固定IPv4の自動検出
+- MAP rule配信とport-set計算
+- HB46PPのDNS discovery、HTTP(S) provisioning、JSON/TTL/token管理
+- 複数固定IPv4、受信DNAT、port forwarding、公開server用firewall
 - UniFi upgrade後の互換性保証

@@ -4,7 +4,21 @@
 
 ## 現在の実機検証範囲
 
-UDM Pro・UniFi OS 5系で、native IPv6、IPIP6トンネル候補、UniFi user chain、DHCPv6-PDのIA_PD処理とLANへのglobal `/64`展開を確認済みです。config投入後のdry-run、手動apply、固定IPv4出口、再起動復帰、rollbackは未完了です。[Issue #1](https://github.com/shuuheyhey/unifi-jpix-tunnel-repair/issues/1)で結果を追跡します。
+UDM Pro・UniFi OS 5系で、native IPv6、IPIP6トンネル候補、UniFi user chain、DHCPv6-PDのIA_PD処理とLANへのglobal `/64`展開を確認済みです。2026-08-26の外部接続試験ではJPIX判定`5999`（v6プラス固定IP）、IPv4、IPv6、フレッツ西日本到達性、v6プラス用試験が成功しました。
+
+この接続試験は現在の実機回線が動作しているbaselineです。このprojectの実config投入後のdry-run、手動apply、対象LANからの固定IPv4出口、prefix変更追従、再起動復帰、rollbackは未完了です。[Issue #1](https://github.com/shuuheyhey/unifi-jpix-tunnel-repair/issues/1)で結果を追跡します。
+
+## 外部接続判定をbaselineとして使う
+
+[JPNE/JPIX IPv4/IPv6接続判定ページの説明](service-and-protocols.md#9-jpnejpix-ipv4ipv6接続判定ページ)に沿って、変更前と手動apply後に同じLAN端末から判定します。VPN、proxy、privacy relayなどInternet出口を変える機能は停止するか、使用中であることを記録します。
+
+1. 変更前に対象LANと対象外LANから各1回実行し、判定文と試験1〜10をprivateに保存します。
+2. 手動apply後に同じ端末、browser、URL、LANで再実行します。
+3. 対象LANの表示IPv4が契約固定IPv4と一致し、IPv4試験、IPv6試験、接続地域の試験、試験10が成功することを確認します。
+4. 対象外LANは変更前と同じ出口・試験結果を維持していることを確認します。
+5. prefix変更試験と再起動試験の後にも繰り返し、自動復旧後の外向き通信を確認します。
+
+表示されるIPv6はbrowser端末のnative IPv6 sourceであり、IPIP tunnelのlocal endpointとは限りません。表示`Port`もtest connectionのsource portで、IPIP tunnel portではありません。判定`5999`と試験10の成功だけでは、内部設定、endpoint通知、再起動復帰、rollbackを証明できません。
 
 ## 1. 導入前preflight
 
@@ -90,4 +104,4 @@ sudo /data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-apply.sh st
 
 ## 結果の共有
 
-Issueへ共有できるのは`PREFLIGHT_MODE=share-safe`または`DIAGNOSTIC_MODE=share-safe`の出力です。完全address、prefix、interface名、port、MAC、serial、device ID、時刻、config、state、完全診断は一般化または削除してください。
+Issueへ共有できるのは`PREFLIGHT_MODE=share-safe`または`DIAGNOSTIC_MODE=share-safe`の出力です。接続判定ページのcopyやscreenshotは共有安全ではありません。完全address、prefix、interface名、port、MAC、serial、device ID、時刻、config、state、完全診断は一般化または削除してください。

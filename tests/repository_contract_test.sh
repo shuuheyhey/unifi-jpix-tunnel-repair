@@ -6,7 +6,7 @@ ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 
 for path in README.md LICENSE NOTICE.md SECURITY.md CONTRIBUTING.md .gitignore \
   docs/architecture.md docs/configuration.md docs/installation.md docs/rollback.md \
-  docs/troubleshooting.md docs/validation.md \
+  docs/service-and-protocols.md docs/troubleshooting.md docs/validation.md \
   config/gateway.conf.example config/routed-networks.conf.example config/provider-update.conf.example \
   scripts/install.sh \
   scripts/unifi-jpix-tunnel-repair-preflight.sh \
@@ -39,6 +39,24 @@ assert_contains "$(cat "$ROOT/config/provider-update.conf.example")" 'ALLOW_INSE
 
 test_start 'README identifies the project as unofficial and experimental'
 assert_contains "$(cat "$ROOT/README.md")" '非公式・実験的'
+
+test_start 'README limits support to JPIX static IPv4 one-address service'
+assert_contains "$(cat "$ROOT/README.md")" 'JPIX「v6プラス」固定IPサービスの固定IPv4 1個'
+
+test_start 'README explicitly excludes ordinary MAP-E v6 Plus'
+assert_contains "$(cat "$ROOT/README.md")" '通常の「v6プラス」で使用するMAP-E'
+
+test_start 'README explicitly excludes HB46PP'
+assert_contains "$(cat "$ROOT/README.md")" 'HB46PP'
+
+test_start 'protocol guide documents the JPNE connection diagnostic page'
+assert_contains "$(cat "$ROOT/docs/service-and-protocols.md")" 'http://wa.kiriwake.jpne.co.jp/'
+
+test_start 'protocol guide distinguishes the displayed port from an IPIP tunnel port'
+assert_contains "$(cat "$ROOT/docs/service-and-protocols.md")" '表示portは「IPIP tunnel port」ではありません'
+
+test_start 'validation marks connection-test captures as unsafe to share'
+assert_contains "$(cat "$ROOT/docs/validation.md")" '接続判定ページのcopyやscreenshotは共有安全ではありません'
 
 test_start 'public artifacts do not use the legacy v6plus filename namespace'
 if find "$ROOT/config" "$ROOT/scripts" "$ROOT/systemd" -maxdepth 1 -type f \
