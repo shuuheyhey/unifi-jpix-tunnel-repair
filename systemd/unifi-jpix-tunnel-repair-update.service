@@ -1,0 +1,14 @@
+[Unit]
+Description=Check and notify the JPIX fixed-IP endpoint for UniFi tunnel repair
+After=unifi-jpix-tunnel-repair-apply.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ReadOnlyPaths=/data/unifi-jpix-tunnel-repair/scripts /data/unifi-jpix-tunnel-repair/config
+ExecStart=/data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-update.sh

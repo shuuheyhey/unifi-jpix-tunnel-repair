@@ -6,13 +6,13 @@ ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/testlib.sh"
 
 TMP_BASE=$(CDPATH= cd -- "${TMPDIR:-/tmp}" && pwd -P)
-TMP=${TMP_BASE%/}/v6plus-diag-test.$$
+TMP=${TMP_BASE%/}/unifi-jpix-tunnel-repair-diag-test.$$
 trap 'chmod -R u+rwX "$TMP" 2>/dev/null || :; rm -rf "$TMP"' EXIT HUP INT TERM
 STATE=$TMP/state
 mkdir -p "$TMP/config" "$TMP/missing-bin" "$STATE"
 chmod 700 "$STATE"
 
-cat >"$TMP/config/v6plus.env" <<'EOF'
+cat >"$TMP/config/gateway.conf" <<'EOF'
 WAN_IF=eth9
 TUN_IF=ip6tnl1
 STATIC_V4=203.0.113.42
@@ -27,14 +27,14 @@ UPDATE_INTERVAL_SECONDS=600
 OUTER_IPIP_ALLOW=auto
 EOF
 
-cat >"$TMP/config/networks.conf" <<'EOF'
+cat >"$TMP/config/routed-networks.conf" <<'EOF'
 br0 192.168.20.0/24
 br10 192.168.10.0/24
 EOF
 
 DIAG_PATH=$ROOT/tests/stubs/diag:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 export V6PLUS_ALLOW_DOCUMENTATION_ADDRESSES=1
-export V6PLUS_LIB="$ROOT/scripts/v6plus-lib.sh"
+export V6PLUS_LIB="$ROOT/scripts/unifi-jpix-tunnel-repair-lib.sh"
 export V6PLUS_STATE_DIR=$STATE
 export V6PLUS_ALLOW_NONROOT=1
 
@@ -45,7 +45,7 @@ run_diag() {
   rm -f "$RUN_OUTPUT" "$RUN_SAFE_OUTPUT" "$RUN_ERROR"
   : >"$TMP/calls.log"
   set +e
-  PATH=$DIAG_PATH STUB_LOG="$TMP/calls.log" "$ROOT/scripts/v6plus-diag.sh" \
+  PATH=$DIAG_PATH STUB_LOG="$TMP/calls.log" "$ROOT/scripts/unifi-jpix-tunnel-repair-diag.sh" \
     --config "$TMP/config" --full-output "$RUN_OUTPUT" "$@" >"$RUN_SAFE_OUTPUT" 2>"$RUN_ERROR"
   RUN_STATUS=$?
   unset DIAG_CURL4_FAIL DIAG_CURL6_FAIL DIAG_FALLBACK_CHAINS \
@@ -59,7 +59,7 @@ run_diag() {
 }
 
 DIAG_SKIP_CONNECTIVITY=1 PATH=$DIAG_PATH STUB_LOG="$TMP/calls.log" \
-  "$ROOT/scripts/v6plus-diag.sh" --config "$TMP/config" >"$TMP/default-output" 2>"$TMP/default-error" || :
+  "$ROOT/scripts/unifi-jpix-tunnel-repair-diag.sh" --config "$TMP/config" >"$TMP/default-output" 2>"$TMP/default-error" || :
 test_start 'default diagnostic output is explicitly share-safe'
 assert_contains "$(cat "$TMP/default-output")" 'DIAGNOSTIC_MODE=share-safe'
 test_start 'default diagnostic output contains no complete IP address or CIDR'
@@ -138,7 +138,7 @@ printf 'outside-original\n' >"$TMP/outside-full-output"
 ln -s "$TMP/outside-full-output" "$TMP/full-output-link"
 set +e
 DIAG_SKIP_CONNECTIVITY=1 PATH=$DIAG_PATH STUB_LOG="$TMP/calls.log" \
-  "$ROOT/scripts/v6plus-diag.sh" --config "$TMP/config" --full-output "$TMP/full-output-link" \
+  "$ROOT/scripts/unifi-jpix-tunnel-repair-diag.sh" --config "$TMP/config" --full-output "$TMP/full-output-link" \
   >"$TMP/link-safe-output" 2>"$TMP/link-error"
 link_status=$?
 set -e
@@ -329,19 +329,19 @@ assert_contains "$snapshot_output" 'ROUTE_TABLE_ENTRY_3=198.51.100.1 dev eth8 no
 test_start 'firewall snapshot visibly redacts URL credentials'
 assert_contains "$snapshot_output" 'MANGLE_RULE_2=-A UBIOS_FORWARD_IN_USER -m comment --comment v6plus:redact?user=[REDACTED]&pass=[REDACTED]'
 
-cat >"$STATE/last-update.env" <<'EOF'
+cat >"$STATE/last-provider-update.state" <<'EOF'
 LOCAL_V6=2001:0db8:1234:0030:00cb:0071:2a00:0000
 SUCCEEDED_AT=1700000000
 HTTP_CODE=200
 EOF
-chmod 600 "$STATE/last-update.env"
-cat >"$TMP/config/last-update.env" <<'EOF'
+chmod 600 "$STATE/last-provider-update.state"
+cat >"$TMP/config/last-provider-update.state" <<'EOF'
 LOCAL_V6=2001:0db8:ffff:ffff:ffff:ffff:ffff:ffff
 SUCCEEDED_AT=1
 HTTP_CODE=599
 UPDATE_PASSWORD=state-password-MUST-NOT-LEAK
 EOF
-cat >"$TMP/config/update.env" <<'EOF'
+cat >"$TMP/config/provider-update.conf" <<'EOF'
 UPDATE_URL=https://update.example.invalid/?user=url-user-MUST-NOT-LEAK&pass=url-pass-MUST-NOT-LEAK
 UPDATE_USERNAME=config-user-MUST-NOT-LEAK
 UPDATE_PASSWORD=$(touch update-env-executed)
@@ -358,17 +358,17 @@ test_start 'credential fields from state and update config never leak'
 assert_not_contains "$state_output$(cat "$RUN_ERROR")" 'MUST-NOT-LEAK'
 test_start 'update config is never executed'
 if [ -e "$TMP/config/update-env-executed" ] || [ -e update-env-executed ]; then
-  fail 'update.env command substitution executed'
+  fail 'provider-update.conf command substitution executed'
 else
   pass
 fi
 
-cat >"$STATE/last-update.env" <<'EOF'
+cat >"$STATE/last-provider-update.state" <<'EOF'
 LOCAL_V6=$(touch last-state-executed)
 SUCCEEDED_AT=bad value
 HTTP_CODE=secret-code
 EOF
-chmod 600 "$STATE/last-update.env"
+chmod 600 "$STATE/last-provider-update.state"
 DIAG_SKIP_CONNECTIVITY=1 run_diag
 test_start 'unsafe optional state values degrade to none without failure'
 assert_status 0
@@ -378,11 +378,11 @@ LAST_UPDATE_SUCCEEDED_AT=none
 LAST_UPDATE_HTTP_CODE=none'
 test_start 'state command substitution is never executed'
 if [ -e "$TMP/config/last-state-executed" ] || [ -e last-state-executed ]; then
-  fail 'last-update.env command substitution executed'
+  fail 'last-provider-update.state command substitution executed'
 else
   pass
 fi
-rm -f "$STATE/last-update.env" "$TMP/config/last-update.env"
+rm -f "$STATE/last-provider-update.state" "$TMP/config/last-provider-update.state"
 
 DIAG_SKIP_CONNECTIVITY=0 run_diag
 connectivity_output=$(cat "$RUN_OUTPUT")
@@ -417,7 +417,7 @@ chmod +x "$TMP/missing-bin"/*
 set +e
 PATH=$TMP/missing-bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin \
   STUB_LOG="$TMP/calls.log" DIAG_SKIP_CONNECTIVITY=1 \
-  "$ROOT/scripts/v6plus-diag.sh" --config "$TMP/config" --full-output "$TMP/missing-output" \
+  "$ROOT/scripts/unifi-jpix-tunnel-repair-diag.sh" --config "$TMP/config" --full-output "$TMP/missing-output" \
   >"$TMP/missing-safe-output" 2>"$TMP/missing-error"
 missing_status=$?
 set -e
@@ -430,10 +430,10 @@ DEPENDENCY_ip6tables=missing
 DEPENDENCY_curl=ok
 DEPENDENCY_systemctl=ok'
 
-cp "$TMP/config/v6plus.env" "$TMP/config/v6plus.env.ready"
+cp "$TMP/config/gateway.conf" "$TMP/config/gateway.conf.ready"
 sed -e 's/WAN_IF=eth9/WAN_IF=replace-with-route-device/' -e '/^TUN_IF=/d' \
-  "$TMP/config/v6plus.env.ready" >"$TMP/config/v6plus.env"
-printf 'not valid networks data at all\n' >"$TMP/config/networks.conf"
+  "$TMP/config/gateway.conf.ready" >"$TMP/config/gateway.conf"
+printf 'not valid networks data at all\n' >"$TMP/config/routed-networks.conf"
 DIAG_SKIP_CONNECTIVITY=1 DIAG_TUNNEL_LIST_MODE=single run_diag --discover
 discover_output=$(cat "$RUN_OUTPUT")
 test_start 'discover mode succeeds before networks are finalized'
@@ -491,14 +491,14 @@ assert_contains "$(cat "$RUN_OUTPUT")" 'TUN_SELECTION=none
 TUN_IF=none
 TUN_EXISTS=no'
 
-mv "$TMP/config/v6plus.env.ready" "$TMP/config/v6plus.env"
-printf 'br0 192.168.20.0/99\n' >"$TMP/config/networks.conf"
+mv "$TMP/config/gateway.conf.ready" "$TMP/config/gateway.conf"
+printf 'br0 192.168.20.0/99\n' >"$TMP/config/routed-networks.conf"
 DIAG_SKIP_CONNECTIVITY=1 run_diag
 test_start 'invalid full configuration exits 2'
 assert_status 2
 
 set +e
-PATH=$DIAG_PATH STUB_LOG="$TMP/calls.log" "$ROOT/scripts/v6plus-diag.sh" --bogus >"$TMP/arg-output" 2>"$TMP/arg-error"
+PATH=$DIAG_PATH STUB_LOG="$TMP/calls.log" "$ROOT/scripts/unifi-jpix-tunnel-repair-diag.sh" --bogus >"$TMP/arg-output" 2>"$TMP/arg-error"
 arg_status=$?
 set -e
 test_start 'invalid arguments exit 2'

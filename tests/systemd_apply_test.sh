@@ -5,7 +5,7 @@ umask 077
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/testlib.sh"
 
-UNIT=$ROOT/systemd/v6plus-apply.service
+UNIT=$ROOT/systemd/unifi-jpix-tunnel-repair-apply.service
 test_start 'boot apply unit exists'
 if [ -f "$UNIT" ]; then
   pass
@@ -29,15 +29,15 @@ unit_values() {
 }
 
 test_start 'unit has the approved description'
-assert_eq "$(unit_values Unit Description)" 'Apply JPIX v6plus fixed IPv4 tunnel state'
+assert_eq "$(unit_values Unit Description)" 'Apply UniFi-managed JPIX fixed-IP tunnel repair state'
 test_start 'unit starts after network-online target'
 assert_eq "$(unit_values Unit After)" 'network-online.target'
 test_start 'unit wants network-online target'
 assert_eq "$(unit_values Unit Wants)" 'network-online.target'
 test_start 'all live config files gate the boot apply'
-assert_eq "$(unit_values Unit ConditionPathExists)" "/data/v6plus/config/v6plus.env
-/data/v6plus/config/networks.conf
-/data/v6plus/config/update.env"
+assert_eq "$(unit_values Unit ConditionPathExists)" "/data/unifi-jpix-tunnel-repair/config/gateway.conf
+/data/unifi-jpix-tunnel-repair/config/routed-networks.conf
+/data/unifi-jpix-tunnel-repair/config/provider-update.conf"
 test_start 'boot apply service is oneshot'
 assert_eq "$(unit_values Service Type)" 'oneshot'
 test_start 'boot apply runs as root with a private umask'
@@ -45,13 +45,13 @@ assert_eq "$(unit_values Service User):$(unit_values Service Group):$(unit_value
 test_start 'boot apply cannot gain additional privileges'
 assert_eq "$(unit_values Service NoNewPrivileges)" yes
 test_start 'boot apply treats installed code and config as read-only'
-assert_eq "$(unit_values Service ReadOnlyPaths)" '/data/v6plus/scripts /data/v6plus/config'
+assert_eq "$(unit_values Service ReadOnlyPaths)" '/data/unifi-jpix-tunnel-repair/scripts /data/unifi-jpix-tunnel-repair/config'
 test_start 'WAN readiness runs before apply with the approved deadline'
-assert_eq "$(unit_values Service ExecStartPre)" '/data/v6plus/scripts/v6plus-wait-wan.sh --timeout 300'
+assert_eq "$(unit_values Service ExecStartPre)" '/data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-wait-wan.sh --timeout 300'
 test_start 'boot action invokes the shared apply path'
-assert_eq "$(unit_values Service ExecStart)" '/data/v6plus/scripts/v6plus-apply.sh apply'
+assert_eq "$(unit_values Service ExecStart)" '/data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-apply.sh apply'
 test_start 'notification is forced but non-fatal after successful apply'
-assert_eq "$(unit_values Service ExecStartPost)" '-/data/v6plus/scripts/v6plus-update.sh --force'
+assert_eq "$(unit_values Service ExecStartPost)" '-/data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-update.sh --force'
 test_start 'oneshot remains active for dependent services'
 assert_eq "$(unit_values Service RemainAfterExit)" 'yes'
 test_start 'systemd timeout exceeds readiness plus update retries'

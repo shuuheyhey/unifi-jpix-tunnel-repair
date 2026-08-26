@@ -5,7 +5,7 @@ umask 077
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/testlib.sh"
 
-WAIT_SCRIPT=$ROOT/scripts/v6plus-wait-wan.sh
+WAIT_SCRIPT=$ROOT/scripts/unifi-jpix-tunnel-repair-wait-wan.sh
 test_start 'WAN readiness executable exists'
 if [ -x "$WAIT_SCRIPT" ]; then
   pass
@@ -15,16 +15,16 @@ else
 fi
 
 TMP_BASE=$(CDPATH= cd -- "${TMPDIR:-/tmp}" && pwd -P)
-TMP=${TMP_BASE%/}/v6plus-wait-wan-test.$$
+TMP=${TMP_BASE%/}/unifi-jpix-tunnel-repair-wait-wan-test.$$
 trap 'rm -rf "$TMP"' EXIT HUP INT TERM
 mkdir -p "$TMP"
 
 WAIT_PATH=$ROOT/tests/stubs/wait:/opt/homebrew/opt/coreutils/libexec/gnubin:/opt/homebrew/bin:/usr/bin:/bin
 export V6PLUS_ROOT=$ROOT
-export V6PLUS_LIB=$ROOT/scripts/v6plus-lib.sh
+export V6PLUS_LIB=$ROOT/scripts/unifi-jpix-tunnel-repair-lib.sh
 
 write_config() {
-  cat >"$CONFIG/v6plus.env" <<'EOF'
+  cat >"$CONFIG/gateway.conf" <<'EOF'
 WAN_IF=eth9
 TUN_IF=ip6tnl1
 STATIC_V4=203.0.113.42
@@ -38,11 +38,11 @@ WATCH_INTERVAL_SECONDS=5
 UPDATE_INTERVAL_SECONDS=600
 OUTER_IPIP_ALLOW=auto
 EOF
-  printf '%s\n' 'br0 192.168.20.0/24' >"$CONFIG/networks.conf"
+  printf '%s\n' 'br0 192.168.20.0/24' >"$CONFIG/routed-networks.conf"
 }
 
 write_non_documentation_config() {
-  cat >"$CONFIG/v6plus.env" <<'EOF'
+  cat >"$CONFIG/gateway.conf" <<'EOF'
 WAN_IF=eth9
 TUN_IF=ip6tnl1
 STATIC_V4=8.8.8.8
@@ -56,7 +56,7 @@ WATCH_INTERVAL_SECONDS=5
 UPDATE_INTERVAL_SECONDS=600
 OUTER_IPIP_ALLOW=auto
 EOF
-  printf '%s\n' 'br0 192.168.20.0/24' >"$CONFIG/networks.conf"
+  printf '%s\n' 'br0 192.168.20.0/24' >"$CONFIG/routed-networks.conf"
 }
 
 new_case() {

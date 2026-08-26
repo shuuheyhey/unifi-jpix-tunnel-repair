@@ -14,9 +14,9 @@ UniFi OS が管理する IPv6 接続を維持しながら、JPIX v6プラス固�
 
 ## Trust boundaries
 
-- `/data/v6plus/scripts`: root所有、非root書き込み不可、symlink不可
-- `/data/v6plus/config`: root所有、directoryは非root書き込み不可、各設定はmode `0600`
-- `/data/v6plus/state`: root所有、mode `0700`
+- `/data/unifi-jpix-tunnel-repair/scripts`: root所有、非root書き込み不可、symlink不可
+- `/data/unifi-jpix-tunnel-repair/config`: root所有、directoryは非root書き込み不可、各設定はmode `0600`
+- `/data/unifi-jpix-tunnel-repair/state`: root所有、mode `0700`
 - 更新通信: HTTPSが既定。HTTPは明示的な例外設定と完全一致hostが必要
 - 診断: stdoutは共有用。完全出力は新規mode `0600` fileだけ
 

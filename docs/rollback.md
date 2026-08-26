@@ -5,8 +5,8 @@
 ## Managed state rollback
 
 ```sh
-sudo systemctl stop v6plus-trigger.service v6plus-watch.service v6plus-update.timer
-sudo /data/v6plus/scripts/v6plus-apply.sh off
+sudo systemctl stop unifi-jpix-tunnel-repair-trigger.service unifi-jpix-tunnel-repair-watch.service unifi-jpix-tunnel-repair-update.timer
+sudo /data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-apply.sh off
 ```
 
 `off` は保存した元トンネル状態を復元し、このプロジェクトがtag付けしたroute、rule、netfilter stateだけを削除します。失敗した場合は出力を公開せず、共有用診断だけを添えてIssueを作成してください。
@@ -14,7 +14,7 @@ sudo /data/v6plus/scripts/v6plus-apply.sh off
 ## Disable boot automation
 
 ```sh
-sudo systemctl disable v6plus-trigger.service v6plus-watch.service v6plus-update.timer
+sudo systemctl disable unifi-jpix-tunnel-repair-trigger.service unifi-jpix-tunnel-repair-watch.service unifi-jpix-tunnel-repair-update.timer
 sudo systemctl daemon-reload
 ```
 

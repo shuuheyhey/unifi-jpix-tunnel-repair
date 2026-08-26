@@ -5,10 +5,10 @@ umask 077
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/testlib.sh"
 
-TRIGGER=$ROOT/systemd/v6plus-trigger.service
-WATCH=$ROOT/systemd/v6plus-watch.service
-UPDATE=$ROOT/systemd/v6plus-update.service
-TIMER=$ROOT/systemd/v6plus-update.timer
+TRIGGER=$ROOT/systemd/unifi-jpix-tunnel-repair-trigger.service
+WATCH=$ROOT/systemd/unifi-jpix-tunnel-repair-watch.service
+UPDATE=$ROOT/systemd/unifi-jpix-tunnel-repair-update.service
+TIMER=$ROOT/systemd/unifi-jpix-tunnel-repair-update.timer
 
 for unit in "$TRIGGER" "$WATCH" "$UPDATE" "$TIMER"; do
   test_start "runtime unit exists: ${unit##*/}"
@@ -38,9 +38,9 @@ unit_values() {
 for unit in "$TRIGGER" "$WATCH"; do
   name=${unit##*/}
   test_start "$name requires successful boot apply"
-  assert_eq "$(unit_values "$unit" Unit Requires)" 'v6plus-apply.service'
+  assert_eq "$(unit_values "$unit" Unit Requires)" 'unifi-jpix-tunnel-repair-apply.service'
   test_start "$name starts after boot apply"
-  assert_eq "$(unit_values "$unit" Unit After)" 'v6plus-apply.service'
+  assert_eq "$(unit_values "$unit" Unit After)" 'unifi-jpix-tunnel-repair-apply.service'
   test_start "$name is a simple long-running service"
   assert_eq "$(unit_values "$unit" Service Type)" simple
   test_start "$name always restarts"
@@ -56,23 +56,23 @@ for unit in "$TRIGGER" "$WATCH"; do
 done
 
 test_start 'trigger service invokes the production trigger path'
-assert_eq "$(unit_values "$TRIGGER" Service ExecStart)" '/data/v6plus/scripts/v6plus-trigger.sh'
+assert_eq "$(unit_values "$TRIGGER" Service ExecStart)" '/data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-trigger.sh'
 test_start 'watch service invokes the production watchdog path'
-assert_eq "$(unit_values "$WATCH" Service ExecStart)" '/data/v6plus/scripts/v6plus-watch.sh'
+assert_eq "$(unit_values "$WATCH" Service ExecStart)" '/data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-watch.sh'
 
 test_start 'update tick waits until apply ordering'
-assert_eq "$(unit_values "$UPDATE" Unit After)" 'v6plus-apply.service'
+assert_eq "$(unit_values "$UPDATE" Unit After)" 'unifi-jpix-tunnel-repair-apply.service'
 test_start 'update tick is a oneshot'
 assert_eq "$(unit_values "$UPDATE" Service Type)" oneshot
 test_start 'update tick runs with the hardened root boundary'
 assert_eq "$(unit_values "$UPDATE" Service User):$(unit_values "$UPDATE" Service Group):$(unit_values "$UPDATE" Service UMask):$(unit_values "$UPDATE" Service NoNewPrivileges)" 'root:root:0077:yes'
 test_start 'update tick delegates interval authority to the updater without force'
-assert_eq "$(unit_values "$UPDATE" Service ExecStart)" '/data/v6plus/scripts/v6plus-update.sh'
+assert_eq "$(unit_values "$UPDATE" Service ExecStart)" '/data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-update.sh'
 test_start 'update oneshot is not independently installable'
 assert_eq "$(unit_values "$UPDATE" Install WantedBy)" ''
 
 test_start 'timer has the approved scheduler-only description'
-assert_eq "$(unit_values "$TIMER" Unit Description)" 'Check whether the JPIX v6plus address update is due'
+assert_eq "$(unit_values "$TIMER" Unit Description)" 'Check whether the JPIX fixed-IP endpoint update is due'
 test_start 'timer first tick is ten minutes after boot'
 assert_eq "$(unit_values "$TIMER" Timer OnBootSec)" 10min
 test_start 'timer ticks once per minute'
@@ -82,7 +82,7 @@ assert_eq "$(unit_values "$TIMER" Timer AccuracySec)" 10s
 test_start 'timer catches up after downtime'
 assert_eq "$(unit_values "$TIMER" Timer Persistent)" true
 test_start 'timer targets only the interval-gated update service'
-assert_eq "$(unit_values "$TIMER" Timer Unit)" v6plus-update.service
+assert_eq "$(unit_values "$TIMER" Timer Unit)" unifi-jpix-tunnel-repair-update.service
 test_start 'timer is explicitly enableable for timers target'
 assert_eq "$(unit_values "$TIMER" Install WantedBy)" timers.target
 test_start 'update unit and timer modes are 0644'

@@ -3,7 +3,7 @@ set -eu
 umask 077
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/testlib.sh"
-. "$ROOT/scripts/v6plus-lib.sh"
+. "$ROOT/scripts/unifi-jpix-tunnel-repair-lib.sh"
 V6PLUS_ALLOW_NONROOT=1
 V6PLUS_ALLOW_DOCUMENTATION_ADDRESSES=1
 export V6PLUS_ALLOW_NONROOT V6PLUS_ALLOW_DOCUMENTATION_ADDRESSES
@@ -13,7 +13,7 @@ trap 'rm -rf "$TMP"' EXIT HUP INT TERM
 mkdir -p "$TMP/bin" "$TMP/config"
 chmod 700 "$TMP/config"
 
-cat >"$TMP/config/v6plus.env" <<'EOF'
+cat >"$TMP/config/gateway.conf" <<'EOF'
 WAN_IF=eth9
 TUN_IF=ip6tnl1
 STATIC_V4=203.0.113.42
@@ -28,7 +28,7 @@ UPDATE_INTERVAL_SECONDS=600
 OUTER_IPIP_ALLOW=auto
 EOF
 
-cat >"$TMP/config/networks.conf" <<'EOF'
+cat >"$TMP/config/routed-networks.conf" <<'EOF'
 # home
 br0 192.168.20.0/24
 
@@ -45,11 +45,11 @@ PATH="$TMP/bin:$PATH"
 export PATH
 
 validate_main_file() {
-  v6_load_main_config "$1" "$TMP/config/networks.conf" && v6_validate_main_config
+  v6_load_main_config "$1" "$TMP/config/routed-networks.conf" && v6_validate_main_config
 }
 
 make_main_variant() {
-  sed "s|$2|$3|" "$TMP/config/v6plus.env" >"$TMP/config/$1"
+  sed "s|$2|$3|" "$TMP/config/gateway.conf" >"$TMP/config/$1"
 }
 
 test_start 'redacts password assignment'
@@ -61,11 +61,11 @@ assert_eq "$(v6_redact 'UPDATE_USERNAME=user-value')" 'UPDATE_USERNAME=[REDACTED
 test_start 'redacts pass query parameter'
 assert_eq "$(v6_redact 'http://u/?user=abc&pass=secret')" 'http://u/?user=[REDACTED]&pass=[REDACTED]'
 
-v6_load_main_config "$TMP/config/v6plus.env" "$TMP/config/networks.conf"
+v6_load_main_config "$TMP/config/gateway.conf" "$TMP/config/routed-networks.conf"
 test_start 'valid config passes'
 assert_success v6_validate_main_config
 
-sed '/^TCP_MSS=/d' "$TMP/config/v6plus.env" >"$TMP/config/missing-key.env"
+sed '/^TCP_MSS=/d' "$TMP/config/gateway.conf" >"$TMP/config/missing-key.env"
 test_start 'missing required key fails'
 assert_failure validate_main_file "$TMP/config/missing-key.env"
 
@@ -158,7 +158,7 @@ test_start 'invalid outer IPIP allow value fails'
 assert_failure validate_main_file "$TMP/config/outer-allow.env"
 
 test_start 'network parser emits stable delimiter'
-assert_eq "$(v6_iter_networks "$TMP/config/networks.conf")" "br0|192.168.20.0/24
+assert_eq "$(v6_iter_networks "$TMP/config/routed-networks.conf")" "br0|192.168.20.0/24
 br10|192.168.10.0/24"
 
 printf 'br0 192.168.20.0/24\nbr0 192.168.20.0/24\n' >"$TMP/config/duplicate.conf"
@@ -214,7 +214,7 @@ OUTER_IPIP_ALLOW=auto
 UNEXPECTED_KEY=value
 EOF
 test_start 'unknown main config key fails'
-assert_failure v6_load_main_config "$TMP/config/unknown.env" "$TMP/config/networks.conf"
+assert_failure v6_load_main_config "$TMP/config/unknown.env" "$TMP/config/routed-networks.conf"
 
 cat >"$TMP/config/duplicate.env" <<'EOF'
 WAN_IF=eth9
@@ -232,13 +232,13 @@ UPDATE_INTERVAL_SECONDS=600
 OUTER_IPIP_ALLOW=auto
 EOF
 test_start 'duplicate main config key fails'
-assert_failure v6_load_main_config "$TMP/config/duplicate.env" "$TMP/config/networks.conf"
+assert_failure v6_load_main_config "$TMP/config/duplicate.env" "$TMP/config/routed-networks.conf"
 
 V6_SEEN_GREP_CMD=$ROOT/tests/stubs/update/seen-grep
 STUB_SEEN_GREP_FAIL_AT=WAN_IF
 export V6_SEEN_GREP_CMD STUB_SEEN_GREP_FAIL_AT
 test_start 'main duplicate-key lookup error fails closed'
-assert_failure v6_load_main_config "$TMP/config/v6plus.env" "$TMP/config/networks.conf"
+assert_failure v6_load_main_config "$TMP/config/gateway.conf" "$TMP/config/routed-networks.conf"
 unset STUB_SEEN_GREP_FAIL_AT
 
 cat >"$TMP/config/update-valid.env" <<'EOF'
@@ -287,7 +287,7 @@ WAN_IF=eth9
 this is not an assignment
 EOF
 test_start 'malformed main assignment fails'
-assert_failure v6_load_main_config "$TMP/config/malformed.env" "$TMP/config/networks.conf"
+assert_failure v6_load_main_config "$TMP/config/malformed.env" "$TMP/config/routed-networks.conf"
 
 cat >"$TMP/config/malicious.env" <<'EOF'
 WAN_IF=$(touch forbidden)
@@ -306,25 +306,25 @@ EOF
 malicious_load_is_safe() {
   (
     cd "$TMP"
-    v6_load_main_config "$TMP/config/malicious.env" "$TMP/config/networks.conf"
+    v6_load_main_config "$TMP/config/malicious.env" "$TMP/config/routed-networks.conf"
     [ ! -e forbidden ]
   )
 }
 test_start 'main config values are never executed'
 assert_success malicious_load_is_safe
 
-cat >"$TMP/config/malicious-update.env" <<'EOF'
+cat >"$TMP/config/malicious-provider-update.conf" <<'EOF'
 UPDATE_URL=https://update.example.invalid/path
 UPDATE_USERNAME=user
 UPDATE_PASSWORD=$(touch update-forbidden)
 ALLOW_INSECURE_UPDATE_HTTP=no
 INSECURE_UPDATE_HTTP_HOST=
 EOF
-chmod 600 "$TMP/config/malicious-update.env"
+chmod 600 "$TMP/config/malicious-provider-update.conf"
 malicious_update_load_is_safe() {
   (
     cd "$TMP"
-    v6_load_update_config "$TMP/config/malicious-update.env" || exit 1
+    v6_load_update_config "$TMP/config/malicious-provider-update.conf" || exit 1
     [ "$V6_UPDATE_PASSWORD" = '$(touch update-forbidden)' ] || exit 1
     [ ! -e update-forbidden ]
   )
@@ -359,22 +359,22 @@ sed 's/INSECURE_UPDATE_HTTP_HOST=legacy.example.invalid/INSECURE_UPDATE_HTTP_HOS
 test_start 'legacy HTTP exact-host mismatch is rejected'
 assert_failure v6_load_update_config "$TMP/config/update-http-mismatch.env"
 
-chmod 644 "$TMP/config/v6plus.env"
+chmod 644 "$TMP/config/gateway.conf"
 test_start 'main config with non-private mode is rejected before parsing'
-assert_failure v6_load_main_config "$TMP/config/v6plus.env" "$TMP/config/networks.conf"
-chmod 600 "$TMP/config/v6plus.env"
+assert_failure v6_load_main_config "$TMP/config/gateway.conf" "$TMP/config/routed-networks.conf"
+chmod 600 "$TMP/config/gateway.conf"
 
-chmod 644 "$TMP/config/networks.conf"
+chmod 644 "$TMP/config/routed-networks.conf"
 test_start 'network config with non-private mode is rejected before parsing'
-assert_failure v6_load_main_config "$TMP/config/v6plus.env" "$TMP/config/networks.conf"
-chmod 600 "$TMP/config/networks.conf"
+assert_failure v6_load_main_config "$TMP/config/gateway.conf" "$TMP/config/routed-networks.conf"
+chmod 600 "$TMP/config/routed-networks.conf"
 
-mv "$TMP/config/networks.conf" "$TMP/config/networks.real"
-ln -s "$TMP/config/networks.real" "$TMP/config/networks.conf"
+mv "$TMP/config/routed-networks.conf" "$TMP/config/networks.real"
+ln -s "$TMP/config/networks.real" "$TMP/config/routed-networks.conf"
 test_start 'symlinked network config is rejected before parsing'
-assert_failure v6_load_main_config "$TMP/config/v6plus.env" "$TMP/config/networks.conf"
-rm "$TMP/config/networks.conf"
-mv "$TMP/config/networks.real" "$TMP/config/networks.conf"
+assert_failure v6_load_main_config "$TMP/config/gateway.conf" "$TMP/config/routed-networks.conf"
+rm "$TMP/config/routed-networks.conf"
+mv "$TMP/config/networks.real" "$TMP/config/routed-networks.conf"
 
 production_chain=$( (
   unset V6PLUS_ALLOW_NONROOT
@@ -405,7 +405,7 @@ WATCH_INTERVAL_SECONDS=5
 UPDATE_INTERVAL_SECONDS=600
 OUTER_IPIP_ALLOW=auto
 EOF
-v6_load_main_config "$TMP/config/rfc5737.env" "$TMP/config/networks.conf"
+v6_load_main_config "$TMP/config/rfc5737.env" "$TMP/config/routed-networks.conf"
 test_start 'RFC 5737 static IPv4 fails without override'
 assert_failure v6_validate_main_config
 cat >"$TMP/config/rfc3849.env" <<'EOF'
@@ -422,7 +422,7 @@ WATCH_INTERVAL_SECONDS=5
 UPDATE_INTERVAL_SECONDS=600
 OUTER_IPIP_ALLOW=auto
 EOF
-v6_load_main_config "$TMP/config/rfc3849.env" "$TMP/config/networks.conf"
+v6_load_main_config "$TMP/config/rfc3849.env" "$TMP/config/routed-networks.conf"
 test_start 'RFC 3849 bridge IPv6 fails without override'
 assert_failure v6_validate_main_config
 cat >"$TMP/config/invalid-ipv6.env" <<'EOF'
@@ -439,21 +439,21 @@ WATCH_INTERVAL_SECONDS=5
 UPDATE_INTERVAL_SECONDS=600
 OUTER_IPIP_ALLOW=auto
 EOF
-v6_load_main_config "$TMP/config/invalid-ipv6.env" "$TMP/config/networks.conf"
+v6_load_main_config "$TMP/config/invalid-ipv6.env" "$TMP/config/routed-networks.conf"
 test_start 'malformed bridge IPv6 fails'
 assert_failure v6_validate_main_config
-sed -e 's|STATIC_V4=203.0.113.42|STATIC_V4=8.8.8.8|' -e 's|BR_V6=2001:db8:ffff::1|BR_V6=:1:2:3:4:5:6:7:8|' "$TMP/config/v6plus.env" >"$TMP/config/leading-colon-ipv6.env"
+sed -e 's|STATIC_V4=203.0.113.42|STATIC_V4=8.8.8.8|' -e 's|BR_V6=2001:db8:ffff::1|BR_V6=:1:2:3:4:5:6:7:8|' "$TMP/config/gateway.conf" >"$TMP/config/leading-colon-ipv6.env"
 test_start 'bridge IPv6 with a leading single colon fails'
 assert_failure validate_main_file "$TMP/config/leading-colon-ipv6.env"
-sed -e 's|STATIC_V4=203.0.113.42|STATIC_V4=8.8.8.8|' -e 's|BR_V6=2001:db8:ffff::1|BR_V6=1:2:3:4:5:6:7:8:|' "$TMP/config/v6plus.env" >"$TMP/config/trailing-colon-ipv6.env"
+sed -e 's|STATIC_V4=203.0.113.42|STATIC_V4=8.8.8.8|' -e 's|BR_V6=2001:db8:ffff::1|BR_V6=1:2:3:4:5:6:7:8:|' "$TMP/config/gateway.conf" >"$TMP/config/trailing-colon-ipv6.env"
 test_start 'bridge IPv6 with a trailing single colon fails'
 assert_failure validate_main_file "$TMP/config/trailing-colon-ipv6.env"
-sed -e 's|STATIC_V4=203.0.113.42|STATIC_V4=8.8.8.8|' -e 's|BR_V6=2001:db8:ffff::1|BR_V6=2001:0db8::1|' "$TMP/config/v6plus.env" >"$TMP/config/padded-rfc3849.env"
+sed -e 's|STATIC_V4=203.0.113.42|STATIC_V4=8.8.8.8|' -e 's|BR_V6=2001:db8:ffff::1|BR_V6=2001:0db8::1|' "$TMP/config/gateway.conf" >"$TMP/config/padded-rfc3849.env"
 test_start 'padded RFC 3849 bridge IPv6 fails without override'
 assert_failure validate_main_file "$TMP/config/padded-rfc3849.env"
 V6PLUS_ALLOW_DOCUMENTATION_ADDRESSES=1
 export V6PLUS_ALLOW_DOCUMENTATION_ADDRESSES
-v6_load_main_config "$TMP/config/v6plus.env" "$TMP/config/networks.conf"
+v6_load_main_config "$TMP/config/gateway.conf" "$TMP/config/routed-networks.conf"
 test_start 'RFC documentation addresses pass with test override'
 assert_success v6_validate_main_config
 

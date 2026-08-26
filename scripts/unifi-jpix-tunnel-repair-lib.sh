@@ -1,11 +1,11 @@
 #!/bin/sh
 
-: "${V6PLUS_LOG_TAG:=v6plus}"
+: "${V6PLUS_LOG_TAG:=unifi-jpix-tunnel-repair}"
 : "${DRY_RUN:=0}"
 : "${V6_IP_CMD:=ip}"
 : "${V6_IPTABLES_CMD:=iptables}"
 : "${V6_IP6TABLES_CMD:=ip6tables}"
-: "${V6PLUS_STATE_DIR:=/data/v6plus/state}"
+: "${V6PLUS_STATE_DIR:=/data/unifi-jpix-tunnel-repair/state}"
 : "${V6_CONTROL_GREP_CMD:=grep}"
 : "${V6_CURL_SED_CMD:=sed}"
 : "${V6_SEEN_GREP_CMD:=grep}"
@@ -113,7 +113,7 @@ v6_release_lock() {
 }
 
 v6_make_seen_dir() {
-  v6_seen_dir=${TMPDIR:-/tmp}/v6plus-seen.$$
+  v6_seen_dir=${TMPDIR:-/tmp}/unifi-jpix-tunnel-repair-seen.$$
   (umask 077 && mkdir "$v6_seen_dir") 2>/dev/null || return 1
 }
 
@@ -719,7 +719,7 @@ v6_has_managed_comment() {
     if [ "$v6_comment_previous" = -m ] && [ "$v6_comment_arg" = comment ]; then
       v6_comment_module=1
     fi
-    if [ "$v6_comment_previous" = --comment ] && [ "$v6_comment_arg" = v6plus-static-ip ]; then
+    if [ "$v6_comment_previous" = --comment ] && [ "$v6_comment_arg" = unifi-jpix-tunnel-repair ]; then
       v6_comment_value=1
     fi
     v6_comment_previous=$v6_comment_arg

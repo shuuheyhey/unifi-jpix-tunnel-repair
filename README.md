@@ -1,9 +1,13 @@
-# unifi-japan-v6plus-fixed-ip
+# unifi-jpix-tunnel-repair
 
-UniFi Dream Machine Pro（UDM Pro）で、日本の JPIX v6プラス固定IPを終端するための非公式・実験的な POSIX shell 実装です。
+UniFi Dream Machine Pro（UDM Pro）で、UniFiが生成したトンネルを補正し、日本のJPIX v6プラス固定IPを終端するための非公式・実験的なPOSIX shell実装です。
 
 > [!WARNING]
 > UDM Pro は JPIX の公式対応機器ではありません。このリポジトリは UniFi が生成した IPv6 トンネルを補正するため、UniFi OS の更新や WAN 再設定で動作が変わる可能性があります。必ず診断、dry-run、手動適用、ロールバック試験の順に検証してください。
+
+## 設計上の区別
+
+このプロジェクトは、独立したIPIP6トンネルを新規作成するツールではありません。既存のUniFi管理トンネルがBRへのIPv4経路として動作していることを確認し、そのトンネルを固定IP用に補正します。独自トンネルを作成する実装や、UniFi管理トンネルを削除するwatchdogとは互換性がないため、併用しないでください。
 
 ## 主な機能
 
@@ -36,12 +40,12 @@ UniFi Dream Machine Pro（UDM Pro）で、日本の JPIX v6プラス固定IPを�
 
 ```sh
 sudo ./scripts/install.sh
-sudo install -m 600 config/v6plus.env.example /data/v6plus/config/v6plus.env
-sudo install -m 600 config/networks.conf.example /data/v6plus/config/networks.conf
-sudo install -m 600 config/update.env.example /data/v6plus/config/update.env
-sudo /data/v6plus/scripts/v6plus-diag.sh
-sudo /data/v6plus/scripts/v6plus-diag.sh --full-output /data/v6plus/state/diagnostic.txt
-sudo DRY_RUN=1 /data/v6plus/scripts/v6plus-apply.sh apply
+sudo install -m 600 config/gateway.conf.example /data/unifi-jpix-tunnel-repair/config/gateway.conf
+sudo install -m 600 config/routed-networks.conf.example /data/unifi-jpix-tunnel-repair/config/routed-networks.conf
+sudo install -m 600 config/provider-update.conf.example /data/unifi-jpix-tunnel-repair/config/provider-update.conf
+sudo /data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-diag.sh
+sudo /data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-diag.sh --full-output /data/unifi-jpix-tunnel-repair/state/diagnostic.txt
+sudo DRY_RUN=1 /data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-apply.sh apply
 ```
 
 例ファイルをそのまま実機へ適用しないでください。完全診断にはネットワーク情報が含まれるため、公開Issueへ貼り付けないでください。
@@ -59,7 +63,7 @@ sudo DRY_RUN=1 /data/v6plus/scripts/v6plus-apply.sh apply
 
 ## English summary
 
-An unofficial and experimental POSIX-shell implementation for terminating Japan's JPIX v6 Plus fixed-IP service on a UniFi Dream Machine Pro. It installs inertly, validates privileged files before reading them, defaults provider updates to HTTPS, and emits share-safe diagnostics by default. Review the warning and validation documents before using it on a router.
+An unofficial and experimental POSIX-shell implementation that repairs a UniFi-managed tunnel to terminate Japan's JPIX v6 Plus fixed-IP service on a UniFi Dream Machine Pro. It does not create a standalone replacement tunnel. It installs inertly, validates privileged files before reading them, defaults provider updates to HTTPS, and emits share-safe diagnostics by default.
 
 ## License
 

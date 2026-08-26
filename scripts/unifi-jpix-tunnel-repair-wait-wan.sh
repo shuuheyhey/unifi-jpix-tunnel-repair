@@ -1,7 +1,7 @@
 #!/bin/sh
 set -u
 
-ROOT=${V6PLUS_ROOT:-/data/v6plus}
+ROOT=${V6PLUS_ROOT:-/data/unifi-jpix-tunnel-repair}
 CONFIG_DIR=$ROOT/config
 TIMEOUT=300
 config_seen=0
@@ -39,7 +39,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ "${V6PLUS_LIB+x}" = x ]; then LIB=$V6PLUS_LIB; else LIB=$ROOT/scripts/v6plus-lib.sh; fi
+if [ "${V6PLUS_LIB+x}" = x ]; then LIB=$V6PLUS_LIB; else LIB=$ROOT/scripts/unifi-jpix-tunnel-repair-lib.sh; fi
 [ -f "$LIB" ] || { printf 'wait library not found\n' >&2; exit 2; }
 # This is trusted program code. Main configuration remains data parsed by the library.
 . "$LIB"
@@ -80,7 +80,7 @@ if [ -n "$MISSING_DEPENDENCIES" ]; then
   exit 1
 fi
 
-if ! v6_load_main_config "$CONFIG_DIR/v6plus.env" "$CONFIG_DIR/networks.conf" ||
+if ! v6_load_main_config "$CONFIG_DIR/gateway.conf" "$CONFIG_DIR/routed-networks.conf" ||
    ! v6_validate_main_config; then
   printf 'invalid wait configuration\n' >&2
   exit 2

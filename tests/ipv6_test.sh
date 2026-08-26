@@ -3,7 +3,7 @@ set -eu
 umask 077
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/testlib.sh"
-. "$ROOT/scripts/v6plus-lib.sh"
+. "$ROOT/scripts/unifi-jpix-tunnel-repair-lib.sh"
 TMP_BASE=$(CDPATH= cd -- "${TMPDIR:-/tmp}" && pwd -P)
 TMP=${TMP_BASE%/}/v6plus-ipv6-test.$$
 trap 'rm -rf "$TMP"' EXIT HUP INT TERM

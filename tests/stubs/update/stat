@@ -5,7 +5,7 @@ if [ "${STUB_STAT_FOREIGN_CONFIG_DIR:-0}" = 1 ] && [ "$#" -eq 3 ] && [ "$1 $2" =
   printf '%s\n' 1234
   exit 0
 fi
-if [ "${STUB_STAT_FOREIGN_STATE:-0}" = 1 ] && [ "$#" -eq 3 ] && [ "$1 $2" = '-c %u' ] && [ "$3" = "$STATE/last-update.env" ]; then
+if [ "${STUB_STAT_FOREIGN_STATE:-0}" = 1 ] && [ "$#" -eq 3 ] && [ "$1 $2" = '-c %u' ] && [ "$3" = "$STATE/last-provider-update.state" ]; then
   printf '%s\n' 1234
   exit 0
 fi

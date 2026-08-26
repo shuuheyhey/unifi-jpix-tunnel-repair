@@ -1,3 +1,4 @@
+# UniFi-managed tunnel repair settings
 WAN_IF=replace-with-route-device
 TUN_IF=replace-with-tunnel
 STATIC_V4=203.0.113.42

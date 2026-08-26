@@ -1,7 +1,7 @@
 #!/bin/sh
 set -u
 
-ROOT=${V6PLUS_ROOT:-/data/v6plus}
+ROOT=${V6PLUS_ROOT:-/data/unifi-jpix-tunnel-repair}
 CONFIG_DIR=$ROOT/config
 DRY_RUN=0
 ACTION=
@@ -35,13 +35,13 @@ done
 [ -n "$ACTION" ] || { usage; exit 2; }
 [ "$DRY_RUN" -eq 0 ] || [ "$ACTION" = apply ] || { usage; exit 2; }
 
-if [ "${V6PLUS_LIB+x}" = x ]; then LIB=$V6PLUS_LIB; else LIB=$ROOT/scripts/v6plus-lib.sh; fi
+if [ "${V6PLUS_LIB+x}" = x ]; then LIB=$V6PLUS_LIB; else LIB=$ROOT/scripts/unifi-jpix-tunnel-repair-lib.sh; fi
 [ -f "$LIB" ] || { printf 'apply library not found\n' >&2; exit 2; }
 # This is trusted program code. Configuration, state, and rollback records are never sourced.
 . "$LIB"
 
-V6PLUS_STATE_DIR=${V6PLUS_STATE_DIR:-/data/v6plus/state}
-V6PLUS_LOCK_DIR=${V6PLUS_LOCK_DIR:-/run/v6plus.lock}
+V6PLUS_STATE_DIR=${V6PLUS_STATE_DIR:-/data/unifi-jpix-tunnel-repair/state}
+V6PLUS_LOCK_DIR=${V6PLUS_LOCK_DIR:-/run/unifi-jpix-tunnel-repair.lock}
 V6_IP_CMD=${V6_IP_CMD:-ip}
 V6_IPTABLES_CMD=${V6_IPTABLES_CMD:-iptables}
 V6_IP6TABLES_CMD=${V6_IP6TABLES_CMD:-ip6tables}
@@ -84,14 +84,14 @@ acquire_shared_lock() {
 }
 
 make_work_dir() {
-  WORK_DIR=$(umask 077 && mktemp -d "${TMPDIR:-/tmp}/v6plus-apply.XXXXXX")
+  WORK_DIR=$(umask 077 && mktemp -d "${TMPDIR:-/tmp}/unifi-jpix-tunnel-repair-apply.XXXXXX")
 }
 
 config_error() { printf 'invalid apply configuration: %s\n' "$*" >&2; return 2; }
 runtime_error() { v6_log "ERROR phase=$1"; return 1; }
 
 load_configuration() {
-  v6_load_main_config "$CONFIG_DIR/v6plus.env" "$CONFIG_DIR/networks.conf" || {
+  v6_load_main_config "$CONFIG_DIR/gateway.conf" "$CONFIG_DIR/routed-networks.conf" || {
     config_error parse
     return 2
   }
@@ -446,7 +446,7 @@ firewall_tag_count() {
   awk '
     {
       tagged=0
-      for (i=1; i<NF; i++) if ($i == "--comment" && $(i+1) == "v6plus-static-ip") tagged=1
+      for (i=1; i<NF; i++) if ($i == "--comment" && $(i+1) == "unifi-jpix-tunnel-repair") tagged=1
       if (tagged) count++
     }
     END { print count+0 }
@@ -468,7 +468,7 @@ validate_tagged_subset() {
   tagged_allowed=$2
   tagged_output=$3
   tagged_allow_duplicates=${4:-no}
-  awk '{ tagged=0; for (i=1; i<NF; i++) if ($i == "--comment" && $(i+1) == "v6plus-static-ip") tagged=1; if (tagged) print }' \
+  awk '{ tagged=0; for (i=1; i<NF; i++) if ($i == "--comment" && $(i+1) == "unifi-jpix-tunnel-repair") tagged=1; if (tagged) print }' \
     "$tagged_snapshot" >"$tagged_output" || return 1
   [ "$tagged_allow_duplicates" = yes ] || [ -z "$(sort "$tagged_output" | uniq -d)" ] || return 1
   while IFS= read -r tagged_line || [ -n "$tagged_line" ]; do
@@ -755,7 +755,7 @@ extract_inventory_tagged() {
       count=split($3, tokens, " ")
       tagged=0
       for (i=1; i<count; i++) {
-        if (tokens[i] == "--comment" && tokens[i+1] == "v6plus-static-ip") tagged=1
+        if (tokens[i] == "--comment" && tokens[i+1] == "unifi-jpix-tunnel-repair") tagged=1
       }
       if (tagged) print
     }
@@ -924,11 +924,11 @@ restore_ip6tables_positions() {
   done
 }
 
-inverse_snat_restore() { v6_is_chain_value "$1" && v6_is_cidr "$2" && restore_iptables_positions "$3" nat "$1" -s "$2" -o "$V6_TUN_IF" -m comment --comment v6plus-static-ip -j SNAT --to-source "$V6_STATIC_V4"; }
-inverse_mss_out_restore() { restore_iptables_positions "$1" mangle FORWARD -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS"; }
-inverse_mss_in_restore() { restore_iptables_positions "$1" mangle FORWARD -i "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS"; }
-inverse_mss_output_restore() { restore_iptables_positions "$1" mangle OUTPUT -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS"; }
-inverse_outer_restore() { v6_is_chain_value "$1" && v6_is_ip_value "$2" && v6_is_ip_value "$3" && restore_ip6tables_positions "$4" "$1" -s "$2/128" -d "$3/128" -p 4 -m comment --comment v6plus-static-ip -j ACCEPT; }
+inverse_snat_restore() { v6_is_chain_value "$1" && v6_is_cidr "$2" && restore_iptables_positions "$3" nat "$1" -s "$2" -o "$V6_TUN_IF" -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source "$V6_STATIC_V4"; }
+inverse_mss_out_restore() { restore_iptables_positions "$1" mangle FORWARD -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS"; }
+inverse_mss_in_restore() { restore_iptables_positions "$1" mangle FORWARD -i "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS"; }
+inverse_mss_output_restore() { restore_iptables_positions "$1" mangle OUTPUT -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS"; }
+inverse_outer_restore() { v6_is_chain_value "$1" && v6_is_ip_value "$2" && v6_is_ip_value "$3" && restore_ip6tables_positions "$4" "$1" -s "$2/128" -d "$3/128" -p 4 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT; }
 
 start_transaction() {
   ROLLBACK_FILE=$V6PLUS_STATE_DIR/rollback.$$.records
@@ -1084,18 +1084,18 @@ later_apply_ownership() {
   : >"$WORK_DIR/later-allowed-v6" || return 1
   : >"$WORK_DIR/later-allowed-global" || return 1
   while IFS='|' read -r owned_iface owned_cidr owned_pref; do
-    append_allowed_firewall_rule "$WORK_DIR/later-allowed-nat" "$LAST_NAT_CHAIN" -s "$owned_cidr" -o "$V6_TUN_IF" -m comment --comment v6plus-static-ip -j SNAT --to-source "$V6_STATIC_V4" || return 1
-    append_allowed_inventory_rule "$WORK_DIR/later-allowed-global" 4 nat "$LAST_NAT_CHAIN" -s "$owned_cidr" -o "$V6_TUN_IF" -m comment --comment v6plus-static-ip -j SNAT --to-source "$V6_STATIC_V4" || return 1
+    append_allowed_firewall_rule "$WORK_DIR/later-allowed-nat" "$LAST_NAT_CHAIN" -s "$owned_cidr" -o "$V6_TUN_IF" -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source "$V6_STATIC_V4" || return 1
+    append_allowed_inventory_rule "$WORK_DIR/later-allowed-global" 4 nat "$LAST_NAT_CHAIN" -s "$owned_cidr" -o "$V6_TUN_IF" -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source "$V6_STATIC_V4" || return 1
   done <"$OLD_NETWORKS"
-  append_allowed_firewall_rule "$WORK_DIR/later-allowed-mangle" FORWARD -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
-  append_allowed_firewall_rule "$WORK_DIR/later-allowed-mangle" FORWARD -i "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
-  append_allowed_firewall_rule "$WORK_DIR/later-allowed-mangle" OUTPUT -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
-  append_allowed_inventory_rule "$WORK_DIR/later-allowed-global" 4 mangle FORWARD -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
-  append_allowed_inventory_rule "$WORK_DIR/later-allowed-global" 4 mangle FORWARD -i "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
-  append_allowed_inventory_rule "$WORK_DIR/later-allowed-global" 4 mangle OUTPUT -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
+  append_allowed_firewall_rule "$WORK_DIR/later-allowed-mangle" FORWARD -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
+  append_allowed_firewall_rule "$WORK_DIR/later-allowed-mangle" FORWARD -i "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
+  append_allowed_firewall_rule "$WORK_DIR/later-allowed-mangle" OUTPUT -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
+  append_allowed_inventory_rule "$WORK_DIR/later-allowed-global" 4 mangle FORWARD -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
+  append_allowed_inventory_rule "$WORK_DIR/later-allowed-global" 4 mangle FORWARD -i "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
+  append_allowed_inventory_rule "$WORK_DIR/later-allowed-global" 4 mangle OUTPUT -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
   if [ "$LAST_V6_INPUT_MANAGED" = yes ]; then
-    append_allowed_firewall_rule "$WORK_DIR/later-allowed-v6" "$LAST_V6_INPUT_CHAIN" -s "$V6_BR_V6/128" -d "$LAST_LOCAL_V6/128" -p 4 -m comment --comment v6plus-static-ip -j ACCEPT || return 1
-    append_allowed_inventory_rule "$WORK_DIR/later-allowed-global" 6 filter "$LAST_V6_INPUT_CHAIN" -s "$V6_BR_V6/128" -d "$LAST_LOCAL_V6/128" -p 4 -m comment --comment v6plus-static-ip -j ACCEPT || return 1
+    append_allowed_firewall_rule "$WORK_DIR/later-allowed-v6" "$LAST_V6_INPUT_CHAIN" -s "$V6_BR_V6/128" -d "$LAST_LOCAL_V6/128" -p 4 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT || return 1
+    append_allowed_inventory_rule "$WORK_DIR/later-allowed-global" 6 filter "$LAST_V6_INPUT_CHAIN" -s "$V6_BR_V6/128" -d "$LAST_LOCAL_V6/128" -p 4 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT || return 1
   fi
   capture_firewall_snapshot current-firewall || return 1
   capture_firewall_inventory current-inventory || return 1
@@ -1107,13 +1107,13 @@ later_apply_ownership() {
   recognized_tag_count=$(awk 'END { print NR+0 }' "$WORK_DIR/later-tagged-nat" "$WORK_DIR/later-tagged-mangle" "$WORK_DIR/later-tagged-v6") || return 1
   [ "$actual_tag_count" -eq "$recognized_tag_count" ] || return 1
   while IFS='|' read -r owned_iface owned_cidr owned_pref; do
-    verify_present_iptables_exact "$WORK_DIR/current-firewall-nat" nat "$LAST_NAT_CHAIN" -s "$owned_cidr" -o "$V6_TUN_IF" -m comment --comment v6plus-static-ip -j SNAT --to-source "$V6_STATIC_V4" || return 1
+    verify_present_iptables_exact "$WORK_DIR/current-firewall-nat" nat "$LAST_NAT_CHAIN" -s "$owned_cidr" -o "$V6_TUN_IF" -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source "$V6_STATIC_V4" || return 1
   done <"$OLD_NETWORKS"
-  verify_present_iptables_exact "$WORK_DIR/current-firewall-mangle" mangle FORWARD -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
-  verify_present_iptables_exact "$WORK_DIR/current-firewall-mangle" mangle FORWARD -i "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
-  verify_present_iptables_exact "$WORK_DIR/current-firewall-mangle" mangle OUTPUT -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
+  verify_present_iptables_exact "$WORK_DIR/current-firewall-mangle" mangle FORWARD -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
+  verify_present_iptables_exact "$WORK_DIR/current-firewall-mangle" mangle FORWARD -i "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
+  verify_present_iptables_exact "$WORK_DIR/current-firewall-mangle" mangle OUTPUT -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
   if [ "$LAST_V6_INPUT_MANAGED" = yes ]; then
-    verify_present_ip6tables_exact "$WORK_DIR/current-firewall-v6" "$LAST_V6_INPUT_CHAIN" -s "$V6_BR_V6/128" -d "$LAST_LOCAL_V6/128" -p 4 -m comment --comment v6plus-static-ip -j ACCEPT || return 1
+    verify_present_ip6tables_exact "$WORK_DIR/current-firewall-v6" "$LAST_V6_INPUT_CHAIN" -s "$V6_BR_V6/128" -d "$LAST_LOCAL_V6/128" -p 4 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT || return 1
   fi
 
   if addr6_exists "$V6_WAN_IF" "$LOCAL_V6/128"; then
@@ -1187,8 +1187,8 @@ dry_run_plan() {
       dry_old_current=0
       grep -F -x -- "$dry_old_iface|$dry_old_cidr|$dry_old_pref" "$NEW_NETWORKS" >/dev/null 2>&1 && dry_old_current=1
       if [ "$dry_old_current" -eq 0 ] || [ "$LAST_NAT_CHAIN" != "$NAT_CHAIN" ]; then
-        if iptables_rule_exists nat "$LAST_NAT_CHAIN" -s "$dry_old_cidr" -o "$V6_TUN_IF" -m comment --comment v6plus-static-ip -j SNAT --to-source "$V6_STATIC_V4"; then
-          v6_run "$V6_IPTABLES_CMD" -t nat -D "$LAST_NAT_CHAIN" -s "$dry_old_cidr" -o "$V6_TUN_IF" -m comment --comment v6plus-static-ip -j SNAT --to-source "$V6_STATIC_V4" || return 1
+        if iptables_rule_exists nat "$LAST_NAT_CHAIN" -s "$dry_old_cidr" -o "$V6_TUN_IF" -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source "$V6_STATIC_V4"; then
+          v6_run "$V6_IPTABLES_CMD" -t nat -D "$LAST_NAT_CHAIN" -s "$dry_old_cidr" -o "$V6_TUN_IF" -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source "$V6_STATIC_V4" || return 1
         else
           dry_status=$?
           [ "$dry_status" -eq 1 ] || return 1
@@ -1220,10 +1220,10 @@ dry_run_plan() {
       [ "$dry_status" -eq 1 ] || return 1
       v6_run "$V6_IP_CMD" -4 rule add pref "$plan_pref" iif "$plan_iface" lookup "$V6_ROUTE_TABLE" || return 1
     fi
-    if iptables_rule_exists nat "$NAT_CHAIN" -s "$plan_cidr" -o "$V6_TUN_IF" -m comment --comment v6plus-static-ip -j SNAT --to-source "$V6_STATIC_V4"; then :; else
+    if iptables_rule_exists nat "$NAT_CHAIN" -s "$plan_cidr" -o "$V6_TUN_IF" -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source "$V6_STATIC_V4"; then :; else
       dry_status=$?
       [ "$dry_status" -eq 1 ] || return 1
-      v6_run "$V6_IPTABLES_CMD" -t nat -A "$NAT_CHAIN" -s "$plan_cidr" -o "$V6_TUN_IF" -m comment --comment v6plus-static-ip -j SNAT --to-source "$V6_STATIC_V4" || return 1
+      v6_run "$V6_IPTABLES_CMD" -t nat -A "$NAT_CHAIN" -s "$plan_cidr" -o "$V6_TUN_IF" -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source "$V6_STATIC_V4" || return 1
     fi
   done <"$NEW_NETWORKS"
   for dry_mss_kind in out in output; do
@@ -1234,17 +1234,17 @@ dry_run_plan() {
     esac
     dry_mss_chain=$1
     dry_mss_direction=$2
-    if iptables_rule_exists mangle "$dry_mss_chain" "$dry_mss_direction" "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS"; then :; else
+    if iptables_rule_exists mangle "$dry_mss_chain" "$dry_mss_direction" "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS"; then :; else
       dry_status=$?
       [ "$dry_status" -eq 1 ] || return 1
-      v6_run "$V6_IPTABLES_CMD" -t mangle -A "$dry_mss_chain" "$dry_mss_direction" "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
+      v6_run "$V6_IPTABLES_CMD" -t mangle -A "$dry_mss_chain" "$dry_mss_direction" "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
     fi
   done
   if [ "$V6_OUTER_IPIP_ALLOW" = yes ]; then
-    if ip6tables_rule_exists "$V6_INPUT_CHAIN" -s "$V6_BR_V6/128" -d "$LOCAL_V6/128" -p 4 -m comment --comment v6plus-static-ip -j ACCEPT; then :; else
+    if ip6tables_rule_exists "$V6_INPUT_CHAIN" -s "$V6_BR_V6/128" -d "$LOCAL_V6/128" -p 4 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT; then :; else
       dry_status=$?
       [ "$dry_status" -eq 1 ] || return 1
-      v6_run "$V6_IP6TABLES_CMD" -A "$V6_INPUT_CHAIN" -s "$V6_BR_V6/128" -d "$LOCAL_V6/128" -p 4 -m comment --comment v6plus-static-ip -j ACCEPT || return 1
+      v6_run "$V6_IP6TABLES_CMD" -A "$V6_INPUT_CHAIN" -s "$V6_BR_V6/128" -d "$LOCAL_V6/128" -p 4 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT || return 1
     fi
   elif [ "$V6_OUTER_IPIP_ALLOW" = auto ]; then
     if outer_unmanaged_exact_exists "$V6_INPUT_CHAIN" "$LOCAL_V6"; then :; else
@@ -1258,8 +1258,8 @@ dry_run_plan() {
     dry_last_local_status=$?
     [ "$dry_last_local_status" -ne 2 ] || return 1
     if [ "$dry_last_local_status" -eq 1 ] || [ "$V6_OUTER_IPIP_ALLOW" != yes ] || [ "$LAST_V6_INPUT_CHAIN" != "$V6_INPUT_CHAIN" ]; then
-      if ip6tables_rule_exists "$LAST_V6_INPUT_CHAIN" -s "$V6_BR_V6/128" -d "$LAST_LOCAL_V6/128" -p 4 -m comment --comment v6plus-static-ip -j ACCEPT; then
-        v6_run "$V6_IP6TABLES_CMD" -D "$LAST_V6_INPUT_CHAIN" -s "$V6_BR_V6/128" -d "$LAST_LOCAL_V6/128" -p 4 -m comment --comment v6plus-static-ip -j ACCEPT || return 1
+      if ip6tables_rule_exists "$LAST_V6_INPUT_CHAIN" -s "$V6_BR_V6/128" -d "$LAST_LOCAL_V6/128" -p 4 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT; then
+        v6_run "$V6_IP6TABLES_CMD" -D "$LAST_V6_INPUT_CHAIN" -s "$V6_BR_V6/128" -d "$LAST_LOCAL_V6/128" -p 4 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT || return 1
       else
         dry_status=$?
         [ "$dry_status" -eq 1 ] || return 1
@@ -1346,17 +1346,17 @@ mutate_rule_del() {
 }
 
 mutate_snat_add() {
-  mutate_positions=$(iptables_rule_positions nat "$1" -s "$2" -o "$V6_TUN_IF" -m comment --comment v6plus-static-ip -j SNAT --to-source "$V6_STATIC_V4") || return 1
+  mutate_positions=$(iptables_rule_positions nat "$1" -s "$2" -o "$V6_TUN_IF" -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source "$V6_STATIC_V4") || return 1
   [ "$mutate_positions" = none ] || return 0
   record_inverse "SNAT_RESTORE|$1|$2|$mutate_positions" || return 1
-  v6_iptables_ensure nat "$1" -s "$2" -o "$V6_TUN_IF" -m comment --comment v6plus-static-ip -j SNAT --to-source "$V6_STATIC_V4" || return 1
+  v6_iptables_ensure nat "$1" -s "$2" -o "$V6_TUN_IF" -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source "$V6_STATIC_V4" || return 1
   PHYSICAL_MUTATED=1
 }
 mutate_snat_del() {
-  mutate_positions=$(iptables_rule_positions nat "$1" -s "$2" -o "$V6_TUN_IF" -m comment --comment v6plus-static-ip -j SNAT --to-source "$V6_STATIC_V4") || return 1
+  mutate_positions=$(iptables_rule_positions nat "$1" -s "$2" -o "$V6_TUN_IF" -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source "$V6_STATIC_V4") || return 1
   [ "$mutate_positions" != none ] || return 0
   record_inverse "SNAT_RESTORE|$1|$2|$mutate_positions" || return 1
-  v6_iptables_delete nat "$1" -s "$2" -o "$V6_TUN_IF" -m comment --comment v6plus-static-ip -j SNAT --to-source "$V6_STATIC_V4" || return 1
+  v6_iptables_delete nat "$1" -s "$2" -o "$V6_TUN_IF" -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source "$V6_STATIC_V4" || return 1
   PHYSICAL_MUTATED=1
 }
 
@@ -1372,24 +1372,24 @@ mutate_mss_rule() {
   fi
   PHYSICAL_MUTATED=1
 }
-mutate_mss_out_add() { mutate_mss_rule add MSS_OUT mangle FORWARD -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS"; }
-mutate_mss_in_add() { mutate_mss_rule add MSS_IN mangle FORWARD -i "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS"; }
-mutate_mss_output_add() { mutate_mss_rule add MSS_OUTPUT mangle OUTPUT -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS"; }
-mutate_mss_out_del() { mutate_mss_rule del MSS_OUT mangle FORWARD -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS"; }
-mutate_mss_in_del() { mutate_mss_rule del MSS_IN mangle FORWARD -i "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS"; }
-mutate_mss_output_del() { mutate_mss_rule del MSS_OUTPUT mangle OUTPUT -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS"; }
+mutate_mss_out_add() { mutate_mss_rule add MSS_OUT mangle FORWARD -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS"; }
+mutate_mss_in_add() { mutate_mss_rule add MSS_IN mangle FORWARD -i "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS"; }
+mutate_mss_output_add() { mutate_mss_rule add MSS_OUTPUT mangle OUTPUT -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS"; }
+mutate_mss_out_del() { mutate_mss_rule del MSS_OUT mangle FORWARD -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS"; }
+mutate_mss_in_del() { mutate_mss_rule del MSS_IN mangle FORWARD -i "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS"; }
+mutate_mss_output_del() { mutate_mss_rule del MSS_OUTPUT mangle OUTPUT -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS"; }
 mutate_outer_add() {
-  mutate_positions=$(ip6tables_rule_positions "$1" -s "$2/128" -d "$3/128" -p 4 -m comment --comment v6plus-static-ip -j ACCEPT) || return 1
+  mutate_positions=$(ip6tables_rule_positions "$1" -s "$2/128" -d "$3/128" -p 4 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT) || return 1
   [ "$mutate_positions" = none ] || return 0
   record_inverse "OUTER_RESTORE|$1|$2|$3|$mutate_positions" || return 1
-  v6_ip6tables_ensure "$1" -s "$2/128" -d "$3/128" -p 4 -m comment --comment v6plus-static-ip -j ACCEPT || return 1
+  v6_ip6tables_ensure "$1" -s "$2/128" -d "$3/128" -p 4 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT || return 1
   PHYSICAL_MUTATED=1
 }
 mutate_outer_del() {
-  mutate_positions=$(ip6tables_rule_positions "$1" -s "$2/128" -d "$3/128" -p 4 -m comment --comment v6plus-static-ip -j ACCEPT) || return 1
+  mutate_positions=$(ip6tables_rule_positions "$1" -s "$2/128" -d "$3/128" -p 4 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT) || return 1
   [ "$mutate_positions" != none ] || return 0
   record_inverse "OUTER_RESTORE|$1|$2|$3|$mutate_positions" || return 1
-  v6_ip6tables_delete "$1" -s "$2/128" -d "$3/128" -p 4 -m comment --comment v6plus-static-ip -j ACCEPT || return 1
+  v6_ip6tables_delete "$1" -s "$2/128" -d "$3/128" -p 4 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT || return 1
   PHYSICAL_MUTATED=1
 }
 
@@ -1600,13 +1600,13 @@ check_material_status() {
 
   : >"$WORK_DIR/status-allowed-global" || return 1
   while IFS='|' read -r status_owned_iface status_owned_cidr status_owned_pref; do
-    append_allowed_inventory_rule "$WORK_DIR/status-allowed-global" 4 nat "$LAST_NAT_CHAIN" -s "$status_owned_cidr" -o "$V6_TUN_IF" -m comment --comment v6plus-static-ip -j SNAT --to-source "$V6_STATIC_V4" || return 1
+    append_allowed_inventory_rule "$WORK_DIR/status-allowed-global" 4 nat "$LAST_NAT_CHAIN" -s "$status_owned_cidr" -o "$V6_TUN_IF" -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source "$V6_STATIC_V4" || return 1
   done <"$WORK_DIR/status-networks"
-  append_allowed_inventory_rule "$WORK_DIR/status-allowed-global" 4 mangle FORWARD -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
-  append_allowed_inventory_rule "$WORK_DIR/status-allowed-global" 4 mangle FORWARD -i "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
-  append_allowed_inventory_rule "$WORK_DIR/status-allowed-global" 4 mangle OUTPUT -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
+  append_allowed_inventory_rule "$WORK_DIR/status-allowed-global" 4 mangle FORWARD -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
+  append_allowed_inventory_rule "$WORK_DIR/status-allowed-global" 4 mangle FORWARD -i "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
+  append_allowed_inventory_rule "$WORK_DIR/status-allowed-global" 4 mangle OUTPUT -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
   if [ "$LAST_V6_INPUT_MANAGED" = yes ]; then
-    append_allowed_inventory_rule "$WORK_DIR/status-allowed-global" 6 filter "$LAST_V6_INPUT_CHAIN" -s "$V6_BR_V6/128" -d "$LAST_LOCAL_V6/128" -p 4 -m comment --comment v6plus-static-ip -j ACCEPT || return 1
+    append_allowed_inventory_rule "$WORK_DIR/status-allowed-global" 6 filter "$LAST_V6_INPUT_CHAIN" -s "$V6_BR_V6/128" -d "$LAST_LOCAL_V6/128" -p 4 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT || return 1
   fi
 
   if capture_firewall_snapshot status-fw && capture_firewall_inventory status-inventory; then
@@ -1694,22 +1694,22 @@ check_status() {
   while IFS='|' read -r status_iface status_cidr status_pref; do
     if route4_exists "$V6_ROUTE_TABLE" "$status_cidr" "$status_iface"; then status_line "route_$status_iface" "$status_cidr" "$status_cidr"; else status_line "route_$status_iface" missing "$status_cidr"; fi
     if rule4_exists "$status_pref" "$status_iface" "$V6_ROUTE_TABLE"; then status_line "rule_$status_iface" "$status_pref" "$status_pref"; else status_line "rule_$status_iface" missing "$status_pref"; fi
-    if "$V6_IPTABLES_CMD" -t nat -C "$NAT_CHAIN" -s "$status_cidr" -o "$V6_TUN_IF" -m comment --comment v6plus-static-ip -j SNAT --to-source "$V6_STATIC_V4" >/dev/null 2>&1; then status_line "snat_$status_iface" present present; else status_line "snat_$status_iface" missing present; fi
+    if "$V6_IPTABLES_CMD" -t nat -C "$NAT_CHAIN" -s "$status_cidr" -o "$V6_TUN_IF" -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source "$V6_STATIC_V4" >/dev/null 2>&1; then status_line "snat_$status_iface" present present; else status_line "snat_$status_iface" missing present; fi
   done <"$WORK_DIR/status-desired"
-  if "$V6_IPTABLES_CMD" -t mangle -C FORWARD -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS" >/dev/null 2>&1; then status_line mss_forward_out present present; else status_line mss_forward_out missing present; fi
-  if "$V6_IPTABLES_CMD" -t mangle -C FORWARD -i "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS" >/dev/null 2>&1; then status_line mss_forward_in present present; else status_line mss_forward_in missing present; fi
-  if "$V6_IPTABLES_CMD" -t mangle -C OUTPUT -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS" >/dev/null 2>&1; then status_line mss_output present present; else status_line mss_output missing present; fi
+  if "$V6_IPTABLES_CMD" -t mangle -C FORWARD -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS" >/dev/null 2>&1; then status_line mss_forward_out present present; else status_line mss_forward_out missing present; fi
+  if "$V6_IPTABLES_CMD" -t mangle -C FORWARD -i "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS" >/dev/null 2>&1; then status_line mss_forward_in present present; else status_line mss_forward_in missing present; fi
+  if "$V6_IPTABLES_CMD" -t mangle -C OUTPUT -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS" >/dev/null 2>&1; then status_line mss_output present present; else status_line mss_output missing present; fi
   if [ "$LAST_V6_INPUT_MANAGED" = yes ]; then
-    if "$V6_IP6TABLES_CMD" -C "$LAST_V6_INPUT_CHAIN" -s "$V6_BR_V6/128" -d "$LAST_LOCAL_V6/128" -p 4 -m comment --comment v6plus-static-ip -j ACCEPT >/dev/null 2>&1; then status_line outer_rule present present; else status_line outer_rule missing present; fi
+    if "$V6_IP6TABLES_CMD" -C "$LAST_V6_INPUT_CHAIN" -s "$V6_BR_V6/128" -d "$LAST_LOCAL_V6/128" -p 4 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT >/dev/null 2>&1; then status_line outer_rule present present; else status_line outer_rule missing present; fi
   else
-    if [ "$LAST_V6_INPUT_CHAIN" != none ] && "$V6_IP6TABLES_CMD" -C "$LAST_V6_INPUT_CHAIN" -s "$V6_BR_V6/128" -d "$LAST_LOCAL_V6/128" -p 4 -m comment --comment v6plus-static-ip -j ACCEPT >/dev/null 2>&1; then status_line outer_rule present absent; else status_line outer_rule absent absent; fi
+    if [ "$LAST_V6_INPUT_CHAIN" != none ] && "$V6_IP6TABLES_CMD" -C "$LAST_V6_INPUT_CHAIN" -s "$V6_BR_V6/128" -d "$LAST_LOCAL_V6/128" -p 4 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT >/dev/null 2>&1; then status_line outer_rule present absent; else status_line outer_rule absent absent; fi
   fi
   check_material_status || STATUS_FAILED=1
   [ "$STATUS_FAILED" -eq 0 ]
 }
 
 automation_active() {
-  for unit in v6plus-trigger.service v6plus-watch.service v6plus-update.service v6plus-update.timer; do
+  for unit in unifi-jpix-tunnel-repair-trigger.service unifi-jpix-tunnel-repair-watch.service unifi-jpix-tunnel-repair-update.service unifi-jpix-tunnel-repair-update.timer; do
     systemctl is-active --quiet "$unit" >/dev/null 2>&1
     automation_status=$?
     case $automation_status in 0) return 0 ;; 3) ;; *) return 2 ;; esac
@@ -1766,18 +1766,18 @@ validate_off_firewall() {
   : >"$WORK_DIR/off-allowed-v6" || return 1
   : >"$WORK_DIR/off-allowed-global" || return 1
   while IFS='|' read -r off_iface off_cidr off_pref; do
-    append_allowed_firewall_rule "$WORK_DIR/off-allowed-nat" "$LAST_NAT_CHAIN" -s "$off_cidr" -o "$V6_TUN_IF" -m comment --comment v6plus-static-ip -j SNAT --to-source "$V6_STATIC_V4" || return 1
-    append_allowed_inventory_rule "$WORK_DIR/off-allowed-global" 4 nat "$LAST_NAT_CHAIN" -s "$off_cidr" -o "$V6_TUN_IF" -m comment --comment v6plus-static-ip -j SNAT --to-source "$V6_STATIC_V4" || return 1
+    append_allowed_firewall_rule "$WORK_DIR/off-allowed-nat" "$LAST_NAT_CHAIN" -s "$off_cidr" -o "$V6_TUN_IF" -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source "$V6_STATIC_V4" || return 1
+    append_allowed_inventory_rule "$WORK_DIR/off-allowed-global" 4 nat "$LAST_NAT_CHAIN" -s "$off_cidr" -o "$V6_TUN_IF" -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source "$V6_STATIC_V4" || return 1
   done <"$OLD_NETWORKS"
-  append_allowed_firewall_rule "$WORK_DIR/off-allowed-mangle" FORWARD -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
-  append_allowed_firewall_rule "$WORK_DIR/off-allowed-mangle" FORWARD -i "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
-  append_allowed_firewall_rule "$WORK_DIR/off-allowed-mangle" OUTPUT -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
-  append_allowed_inventory_rule "$WORK_DIR/off-allowed-global" 4 mangle FORWARD -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
-  append_allowed_inventory_rule "$WORK_DIR/off-allowed-global" 4 mangle FORWARD -i "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
-  append_allowed_inventory_rule "$WORK_DIR/off-allowed-global" 4 mangle OUTPUT -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
+  append_allowed_firewall_rule "$WORK_DIR/off-allowed-mangle" FORWARD -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
+  append_allowed_firewall_rule "$WORK_DIR/off-allowed-mangle" FORWARD -i "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
+  append_allowed_firewall_rule "$WORK_DIR/off-allowed-mangle" OUTPUT -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
+  append_allowed_inventory_rule "$WORK_DIR/off-allowed-global" 4 mangle FORWARD -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
+  append_allowed_inventory_rule "$WORK_DIR/off-allowed-global" 4 mangle FORWARD -i "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
+  append_allowed_inventory_rule "$WORK_DIR/off-allowed-global" 4 mangle OUTPUT -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS" || return 1
   if [ "$LAST_V6_INPUT_MANAGED" = yes ]; then
-    append_allowed_firewall_rule "$WORK_DIR/off-allowed-v6" "$LAST_V6_INPUT_CHAIN" -s "$V6_BR_V6/128" -d "$LAST_LOCAL_V6/128" -p 4 -m comment --comment v6plus-static-ip -j ACCEPT || return 1
-    append_allowed_inventory_rule "$WORK_DIR/off-allowed-global" 6 filter "$LAST_V6_INPUT_CHAIN" -s "$V6_BR_V6/128" -d "$LAST_LOCAL_V6/128" -p 4 -m comment --comment v6plus-static-ip -j ACCEPT || return 1
+    append_allowed_firewall_rule "$WORK_DIR/off-allowed-v6" "$LAST_V6_INPUT_CHAIN" -s "$V6_BR_V6/128" -d "$LAST_LOCAL_V6/128" -p 4 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT || return 1
+    append_allowed_inventory_rule "$WORK_DIR/off-allowed-global" 6 filter "$LAST_V6_INPUT_CHAIN" -s "$V6_BR_V6/128" -d "$LAST_LOCAL_V6/128" -p 4 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT || return 1
   fi
   capture_firewall_snapshot off-firewall || return 1
   capture_firewall_inventory off-inventory || return 1

@@ -7,8 +7,21 @@ ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 for path in README.md LICENSE NOTICE.md SECURITY.md CONTRIBUTING.md .gitignore \
   docs/architecture.md docs/configuration.md docs/installation.md docs/rollback.md \
   docs/troubleshooting.md docs/validation.md \
-  config/v6plus.env.example config/networks.conf.example config/update.env.example \
-  scripts/install.sh .github/pull_request_template.md \
+  config/gateway.conf.example config/routed-networks.conf.example config/provider-update.conf.example \
+  scripts/install.sh \
+  scripts/unifi-jpix-tunnel-repair-apply.sh \
+  scripts/unifi-jpix-tunnel-repair-diag.sh \
+  scripts/unifi-jpix-tunnel-repair-lib.sh \
+  scripts/unifi-jpix-tunnel-repair-trigger.sh \
+  scripts/unifi-jpix-tunnel-repair-update.sh \
+  scripts/unifi-jpix-tunnel-repair-wait-wan.sh \
+  scripts/unifi-jpix-tunnel-repair-watch.sh \
+  systemd/unifi-jpix-tunnel-repair-apply.service \
+  systemd/unifi-jpix-tunnel-repair-trigger.service \
+  systemd/unifi-jpix-tunnel-repair-update.service \
+  systemd/unifi-jpix-tunnel-repair-update.timer \
+  systemd/unifi-jpix-tunnel-repair-watch.service \
+  .github/pull_request_template.md \
   .github/ISSUE_TEMPLATE/bug_report.yml .github/ISSUE_TEMPLATE/config.yml
 do
   test_start "repository contains $path"
@@ -16,15 +29,24 @@ do
 done
 
 test_start "main example contains route table"
-assert_contains "$(cat "$ROOT/config/v6plus.env.example" 2>/dev/null || true)" 'ROUTE_TABLE=300'
+assert_contains "$(cat "$ROOT/config/gateway.conf.example" 2>/dev/null || true)" 'ROUTE_TABLE=300'
 test_start 'HTTPS is the update example default'
-assert_contains "$(cat "$ROOT/config/update.env.example")" 'UPDATE_URL=https://'
+assert_contains "$(cat "$ROOT/config/provider-update.conf.example")" 'UPDATE_URL=https://'
 
 test_start 'legacy HTTP is disabled in the update example'
-assert_contains "$(cat "$ROOT/config/update.env.example")" 'ALLOW_INSECURE_UPDATE_HTTP=no'
+assert_contains "$(cat "$ROOT/config/provider-update.conf.example")" 'ALLOW_INSECURE_UPDATE_HTTP=no'
 
 test_start 'README identifies the project as unofficial and experimental'
 assert_contains "$(cat "$ROOT/README.md")" '非公式・実験的'
+
+test_start 'public artifacts do not use the legacy v6plus filename namespace'
+if find "$ROOT/config" "$ROOT/scripts" "$ROOT/systemd" -maxdepth 1 -type f \
+  \( -name 'v6plus-*' -o -name 'v6plus.env.example' -o -name 'networks.conf.example' -o -name 'update.env.example' \) \
+  -print | grep . >/dev/null; then
+  fail 'legacy public artifact filename found'
+else
+  pass
+fi
 
 test_start 'tracked public tree excludes internal plans and checkpoints'
 if find "$ROOT" -path "$ROOT/.git" -prune -o \
@@ -35,7 +57,7 @@ else
 fi
 
 test_start 'main config example does not add obsolete ONU management addresses'
-case $(cat "$ROOT/config/v6plus.env.example") in
+case $(cat "$ROOT/config/gateway.conf.example") in
   *192.168.1.1*|*192.168.1.2*) fail 'obsolete ONU management address found' ;;
   *) pass ;;
 esac

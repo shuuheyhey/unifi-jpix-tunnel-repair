@@ -5,10 +5,10 @@ umask 077
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/testlib.sh"
 
-SCRIPT=$ROOT/scripts/v6plus-trigger.sh
+SCRIPT=$ROOT/scripts/unifi-jpix-tunnel-repair-trigger.sh
 STUB=$ROOT/tests/stubs/runtime
 TMP_BASE=$(CDPATH= cd -- "${TMPDIR:-/tmp}" && pwd -P)
-TMP=${TMP_BASE%/}/v6plus-trigger-test.$$
+TMP=${TMP_BASE%/}/unifi-jpix-tunnel-repair-trigger-test.$$
 OLD_ENDPOINT=2001:0db8:1234:0030:00cb:0071:2a00:0000
 NEW_ENDPOINT=2001:0db8:1234:0031:00cb:0071:2a00:0000
 SECRET_SENTINEL='trigger-secret-user:p&a ss%word'
@@ -67,7 +67,7 @@ new_case() {
   CASE=$TMP/$1
   mkdir -p "$CASE/config" "$CASE/state" "$CASE/tmp"
   chmod 700 "$CASE/config" "$CASE/state"
-  cat >"$CASE/config/v6plus.env" <<'EOF'
+  cat >"$CASE/config/gateway.conf" <<'EOF'
 WAN_IF=eth9
 TUN_IF=ip6tnl1
 STATIC_V4=203.0.113.42
@@ -81,13 +81,13 @@ WATCH_INTERVAL_SECONDS=5
 UPDATE_INTERVAL_SECONDS=600
 OUTER_IPIP_ALLOW=auto
 EOF
-  cat >"$CASE/config/networks.conf" <<'EOF'
+  cat >"$CASE/config/routed-networks.conf" <<'EOF'
 br0 192.168.20.0/24
 br10 192.168.10.0/24
 EOF
   printf 'UPDATE_URL=https://updates.example.invalid/path\nUPDATE_USERNAME=%s\nUPDATE_PASSWORD=%s\nALLOW_INSECURE_UPDATE_HTTP=no\nINSECURE_UPDATE_HTTP_HOST=\n' \
-    "$SECRET_SENTINEL" "$SECRET_SENTINEL" >"$CASE/config/update.env"
-  chmod 600 "$CASE/config/update.env"
+    "$SECRET_SENTINEL" "$SECRET_SENTINEL" >"$CASE/config/provider-update.conf"
+  chmod 600 "$CASE/config/provider-update.conf"
   printf '2001:db8:ffff::1 via fe80::1 dev eth9 src 2001:db8:1234:31:abcd::1 metric 1024\n' >"$CASE/route"
   printf '    inet6 2001:db8:1234:31:abcd::1/64 scope global dynamic\n       valid_lft forever preferred_lft forever\n' >"$CASE/addr"
   : >"$CASE/monitor"
@@ -111,7 +111,7 @@ EOF
   : >"$CASE/clock"
   printf '%s\n' "$NEW_ENDPOINT" >"$CASE/apply-endpoint"
 
-  V6PLUS_LIB=$ROOT/scripts/v6plus-lib.sh
+  V6PLUS_LIB=$ROOT/scripts/unifi-jpix-tunnel-repair-lib.sh
   V6PLUS_STATE_DIR=$CASE/state
   V6PLUS_LOCK_DIR=$CASE/lock
   V6_IP_CMD=$STUB/ip
@@ -797,8 +797,8 @@ new_case production_documentation_source
 write_last_apply "$OLD_ENDPOINT"
 sed -e 's/STATIC_V4=203\.0\.113\.42/STATIC_V4=198.18.0.42/' \
     -e 's/BR_V6=2001:db8:ffff::1/BR_V6=2400:1234:ffff::1/' \
-    "$CASE/config/v6plus.env" >"$CASE/config/v6plus.env.new"
-mv "$CASE/config/v6plus.env.new" "$CASE/config/v6plus.env"
+    "$CASE/config/gateway.conf" >"$CASE/config/gateway.conf.new"
+mv "$CASE/config/gateway.conf.new" "$CASE/config/gateway.conf"
 printf '2400:1234:ffff::1 via fe80::1 dev eth9 src 2001:db8:1234:31:abcd::1\n' >"$CASE/route"
 printf 'Deleted 2400:1234::1/64 dev eth9\n' >"$CASE/monitor"
 unset V6PLUS_ALLOW_DOCUMENTATION_ADDRESSES

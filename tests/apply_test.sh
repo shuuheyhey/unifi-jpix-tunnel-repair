@@ -6,7 +6,7 @@ ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/testlib.sh"
 
 TMP_BASE=$(CDPATH= cd -- "${TMPDIR:-/tmp}" && pwd -P)
-TMP=${TMP_BASE%/}/v6plus-apply-test.$$
+TMP=${TMP_BASE%/}/unifi-jpix-tunnel-repair-apply-test.$$
 trap 'chmod -R u+rwX "$TMP" 2>/dev/null || :; rm -rf "$TMP"' EXIT HUP INT TERM
 mkdir -p "$TMP"
 
@@ -15,13 +15,13 @@ LOCAL_V6=2001:0db8:1234:0030:00cb:0071:2a00:0000
 NEXT_LOCAL_V6=2001:0db8:1234:0031:00cb:0071:2a00:0000
 export V6PLUS_ALLOW_DOCUMENTATION_ADDRESSES=1
 export V6PLUS_ALLOW_NONROOT=1
-export V6PLUS_LIB="$ROOT/scripts/v6plus-lib.sh"
+export V6PLUS_LIB="$ROOT/scripts/unifi-jpix-tunnel-repair-lib.sh"
 export V6PLUS_ROOT="$ROOT"
 export V6PLUS_NOW=1724241600
 
 write_config() {
   outer=$1
-  cat >"$CONFIG/v6plus.env" <<EOF
+  cat >"$CONFIG/gateway.conf" <<EOF
 WAN_IF=eth9
 TUN_IF=ip6tnl1
 STATIC_V4=203.0.113.42
@@ -38,7 +38,7 @@ EOF
 }
 
 write_two_networks() {
-  cat >"$CONFIG/networks.conf" <<'EOF'
+  cat >"$CONFIG/routed-networks.conf" <<'EOF'
 br0 192.168.20.0/24
 br10 192.168.10.0/24
 EOF
@@ -92,7 +92,7 @@ run_apply() {
   : >"$RUN_OUTPUT"
   : >"$RUN_ERROR"
   set +e
-  PATH=$APPLY_PATH "$ROOT/scripts/v6plus-apply.sh" --config "$CONFIG" "$@" >"$RUN_OUTPUT" 2>"$RUN_ERROR"
+  PATH=$APPLY_PATH "$ROOT/scripts/unifi-jpix-tunnel-repair-apply.sh" --config "$CONFIG" "$@" >"$RUN_OUTPUT" 2>"$RUN_ERROR"
   RUN_STATUS=$?
   set -e
 }
@@ -141,25 +141,25 @@ mutation_log_after() {
 install_interleaved_firewall_duplicates() {
   cat >"$STUB_STATE_DIR/iptables.state" <<EOF
 nat|UBIOS_POSTROUTING_USER_HOOK|-s 10.1.0.0/16 -j ACCEPT
-nat|UBIOS_POSTROUTING_USER_HOOK|-s 192.168.20.0/24 -o ip6tnl1 -m comment --comment v6plus-static-ip -j SNAT --to-source 203.0.113.42
+nat|UBIOS_POSTROUTING_USER_HOOK|-s 192.168.20.0/24 -o ip6tnl1 -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source 203.0.113.42
 nat|UBIOS_POSTROUTING_USER_HOOK|-s 10.2.0.0/16 -j DROP
-nat|UBIOS_POSTROUTING_USER_HOOK|-s 192.168.20.0/24 -o ip6tnl1 -m comment --comment v6plus-static-ip -j SNAT --to-source 203.0.113.42
-nat|UBIOS_POSTROUTING_USER_HOOK|-s 192.168.10.0/24 -o ip6tnl1 -m comment --comment v6plus-static-ip -j SNAT --to-source 203.0.113.42
+nat|UBIOS_POSTROUTING_USER_HOOK|-s 192.168.20.0/24 -o ip6tnl1 -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source 203.0.113.42
+nat|UBIOS_POSTROUTING_USER_HOOK|-s 192.168.10.0/24 -o ip6tnl1 -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source 203.0.113.42
 nat|UBIOS_POSTROUTING_USER_HOOK|-s 10.3.0.0/16 -j RETURN
 mangle|FORWARD|-o eth0 -j ACCEPT
-mangle|FORWARD|-o ip6tnl1 -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss 1420
+mangle|FORWARD|-o ip6tnl1 -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss 1420
 mangle|FORWARD|-i eth0 -j DROP
-mangle|FORWARD|-o ip6tnl1 -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss 1420
-mangle|FORWARD|-i ip6tnl1 -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss 1420
+mangle|FORWARD|-o ip6tnl1 -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss 1420
+mangle|FORWARD|-i ip6tnl1 -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss 1420
 mangle|OUTPUT|-o eth0 -j ACCEPT
-mangle|OUTPUT|-o ip6tnl1 -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss 1420
+mangle|OUTPUT|-o ip6tnl1 -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss 1420
 mangle|OUTPUT|-o eth1 -j DROP
 EOF
   cat >"$STUB_STATE_DIR/ip6tables.state" <<EOF
 UBIOS_INPUT_USER_HOOK|-s 2001:db8:aaaa::1/128 -j ACCEPT
-UBIOS_INPUT_USER_HOOK|-s 2001:db8:ffff::1/128 -d $LOCAL_V6/128 -p 4 -m comment --comment v6plus-static-ip -j ACCEPT
+UBIOS_INPUT_USER_HOOK|-s 2001:db8:ffff::1/128 -d $LOCAL_V6/128 -p 4 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT
 UBIOS_INPUT_USER_HOOK|-s 2001:db8:bbbb::1/128 -j DROP
-UBIOS_INPUT_USER_HOOK|-s 2001:db8:ffff::1/128 -d $LOCAL_V6/128 -p 4 -m comment --comment v6plus-static-ip -j ACCEPT
+UBIOS_INPUT_USER_HOOK|-s 2001:db8:ffff::1/128 -d $LOCAL_V6/128 -p 4 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT
 INPUT|-s 2001:db8:cccc::1/128 -j ACCEPT
 EOF
 }
@@ -233,18 +233,18 @@ test_start 'policy rules use the reserved ordered preferences'
 assert_eq "$(cat "$STUB_STATE_DIR/rules.state")" "10000|br0|300
 10001|br10|300"
 test_start 'SNAT and three MSS rules include the exact management tag'
-assert_eq "$(cat "$STUB_STATE_DIR/iptables.state")" "nat|UBIOS_POSTROUTING_USER_HOOK|-s 192.168.20.0/24 -o ip6tnl1 -m comment --comment v6plus-static-ip -j SNAT --to-source 203.0.113.42
-nat|UBIOS_POSTROUTING_USER_HOOK|-s 192.168.10.0/24 -o ip6tnl1 -m comment --comment v6plus-static-ip -j SNAT --to-source 203.0.113.42
-mangle|FORWARD|-o ip6tnl1 -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss 1420
-mangle|FORWARD|-i ip6tnl1 -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss 1420
-mangle|OUTPUT|-o ip6tnl1 -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss 1420"
+assert_eq "$(cat "$STUB_STATE_DIR/iptables.state")" "nat|UBIOS_POSTROUTING_USER_HOOK|-s 192.168.20.0/24 -o ip6tnl1 -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source 203.0.113.42
+nat|UBIOS_POSTROUTING_USER_HOOK|-s 192.168.10.0/24 -o ip6tnl1 -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source 203.0.113.42
+mangle|FORWARD|-o ip6tnl1 -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss 1420
+mangle|FORWARD|-i ip6tnl1 -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss 1420
+mangle|OUTPUT|-o ip6tnl1 -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss 1420"
 test_start 'outer protocol-4 accept is narrowly tagged'
-assert_eq "$(cat "$STUB_STATE_DIR/ip6tables.state")" "UBIOS_INPUT_USER_HOOK|-s 2001:db8:ffff::1/128 -d $LOCAL_V6/128 -p 4 -m comment --comment v6plus-static-ip -j ACCEPT"
+assert_eq "$(cat "$STUB_STATE_DIR/ip6tables.state")" "UBIOS_INPUT_USER_HOOK|-s 2001:db8:ffff::1/128 -d $LOCAL_V6/128 -p 4 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT"
 test_start 'router-originated probe uses tunnel and fixed source'
 assert_contains "$(PATH=$APPLY_PATH ip -4 route get 192.0.2.1)" 'dev ip6tnl1 src 203.0.113.42'
 test_start 'iptables ensure checks exact membership before append'
-assert_contains "$(cat "$STUB_LOG")" "iptables -t nat -C UBIOS_POSTROUTING_USER_HOOK -s 192.168.20.0/24 -o ip6tnl1 -m comment --comment v6plus-static-ip -j SNAT --to-source 203.0.113.42
-iptables -t nat -A UBIOS_POSTROUTING_USER_HOOK -s 192.168.20.0/24 -o ip6tnl1 -m comment --comment v6plus-static-ip -j SNAT --to-source 203.0.113.42"
+assert_contains "$(cat "$STUB_LOG")" "iptables -t nat -C UBIOS_POSTROUTING_USER_HOOK -s 192.168.20.0/24 -o ip6tnl1 -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source 203.0.113.42
+iptables -t nat -A UBIOS_POSTROUTING_USER_HOOK -s 192.168.20.0/24 -o ip6tnl1 -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source 203.0.113.42"
 
 # Native UniFi creates an any-over-IPv6 tunnel. Applying must narrow it to
 # IPv4-over-IPv6, while rollback/off must retain a command-safe original mode.
@@ -297,7 +297,7 @@ export V6PLUS_NOW
 # Case 3: stale allowlist entries are deleted exactly and unknowns survive.
 printf '20000|user0|main\n' >>"$STUB_STATE_DIR/rules.state"
 printf 'nat|UBIOS_POSTROUTING_USER_HOOK|-s 10.0.0.0/8 -j ACCEPT\n' >>"$STUB_STATE_DIR/iptables.state"
-printf 'br0 192.168.20.0/24\n' >"$CONFIG/networks.conf"
+printf 'br0 192.168.20.0/24\n' >"$CONFIG/routed-networks.conf"
 run_apply apply
 assert_run_success 'stale VLAN removal converges'
 test_start 'stale connected route alone is removed'
@@ -313,7 +313,7 @@ assert_not_contains "$(cat "$STUB_STATE_DIR/iptables.state")" '192.168.10.0/24'
 
 # Case 4: a mid-policy failure rolls back only this invocation.
 new_case rollback
-printf 'br0 192.168.20.0/24\n' >"$CONFIG/networks.conf"
+printf 'br0 192.168.20.0/24\n' >"$CONFIG/routed-networks.conf"
 run_apply apply
 assert_run_success 'rollback fixture first apply converges'
 rollback_physical=$(physical_state)
@@ -357,7 +357,7 @@ assert_run_success 'off fixture apply converges'
 printf '25000|user0|main\n' >>"$STUB_STATE_DIR/rules.state"
 printf 'nat|UBIOS_POSTROUTING_USER_HOOK|-s 10.0.0.0/8 -j ACCEPT\n' >>"$STUB_STATE_DIR/iptables.state"
 printf 'UBIOS_INPUT_USER_HOOK|-s 2001:db8:ffff::1/128 -d %s/128 -p 4 -j ACCEPT\n' "$LOCAL_V6" >>"$STUB_STATE_DIR/ip6tables.state"
-printf 'v6plus-watch.service\n' >"$STUB_STATE_DIR/services.active"
+printf 'unifi-jpix-tunnel-repair-watch.service\n' >"$STUB_STATE_DIR/services.active"
 off_before=$(physical_state)
 run_apply off
 assert_run_failure 'off refuses while an automation service is active'
@@ -441,7 +441,7 @@ write_config yes
 run_apply apply
 assert_run_success 'explicit yes adds the narrow tagged outer rule'
 test_start 'yes mode adds only the exact tagged outer rule'
-assert_eq "$(cat "$STUB_STATE_DIR/ip6tables.state")" "UBIOS_INPUT_USER_HOOK|-s 2001:db8:ffff::1/128 -d $LOCAL_V6/128 -p 4 -m comment --comment v6plus-static-ip -j ACCEPT"
+assert_eq "$(cat "$STUB_STATE_DIR/ip6tables.state")" "UBIOS_INPUT_USER_HOOK|-s 2001:db8:ffff::1/128 -d $LOCAL_V6/128 -p 4 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT"
 
 new_case outer-no
 write_config no
@@ -469,7 +469,7 @@ printf '300|10.9.0.0/16|other0\n' >"$STUB_STATE_DIR/routes.state"
 assert_rejected_unchanged 'first-apply non-empty route table collision'
 
 new_case collision-tag
-printf 'nat|UBIOS_POSTROUTING_USER_HOOK|-s 10.0.0.0/8 -m comment --comment v6plus-static-ip -j ACCEPT\n' >"$STUB_STATE_DIR/iptables.state"
+printf 'nat|UBIOS_POSTROUTING_USER_HOOK|-s 10.0.0.0/8 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT\n' >"$STUB_STATE_DIR/iptables.state"
 assert_rejected_unchanged 'first-apply existing management tag collision'
 
 new_case collision-address
@@ -494,32 +494,32 @@ rm "$STUB_STATE_DIR/tunnel.state"
 assert_rejected_unchanged 'absent tunnel'
 
 new_case empty-networks
-: >"$CONFIG/networks.conf"
+: >"$CONFIG/routed-networks.conf"
 assert_rejected_unchanged 'empty network list'
 
 new_case duplicate-interface
-printf 'br0 192.168.20.0/24\nbr0 192.168.61.0/24\n' >"$CONFIG/networks.conf"
+printf 'br0 192.168.20.0/24\nbr0 192.168.61.0/24\n' >"$CONFIG/routed-networks.conf"
 assert_rejected_unchanged 'duplicate network interface'
 
 new_case duplicate-cidr
-printf 'br0 192.168.20.0/24\nbr10 192.168.20.0/24\n' >"$CONFIG/networks.conf"
+printf 'br0 192.168.20.0/24\nbr10 192.168.20.0/24\n' >"$CONFIG/routed-networks.conf"
 assert_rejected_unchanged 'duplicate network CIDR'
 
 new_case invalid-cidr
-printf 'br0 192.168.20.0/33\n' >"$CONFIG/networks.conf"
+printf 'br0 192.168.20.0/33\n' >"$CONFIG/routed-networks.conf"
 assert_rejected_unchanged 'invalid network CIDR'
 
 new_case missing-link
-printf 'br99 192.168.99.0/24\n' >"$CONFIG/networks.conf"
+printf 'br99 192.168.99.0/24\n' >"$CONFIG/routed-networks.conf"
 assert_rejected_unchanged 'missing network link'
 
 new_case preference-overflow
-sed 's/^RULE_PREF_BASE=.*/RULE_PREF_BASE=32700/' "$CONFIG/v6plus.env" >"$CONFIG/v6plus.tmp"
-mv "$CONFIG/v6plus.tmp" "$CONFIG/v6plus.env"
-: >"$CONFIG/networks.conf"
+sed 's/^RULE_PREF_BASE=.*/RULE_PREF_BASE=32700/' "$CONFIG/gateway.conf" >"$CONFIG/v6plus.tmp"
+mv "$CONFIG/v6plus.tmp" "$CONFIG/gateway.conf"
+: >"$CONFIG/routed-networks.conf"
 overflow_index=1
 while [ "$overflow_index" -le 67 ]; do
-  printf 'vlan%s 10.0.%s.0/24\n' "$overflow_index" "$overflow_index" >>"$CONFIG/networks.conf"
+  printf 'vlan%s 10.0.%s.0/24\n' "$overflow_index" "$overflow_index" >>"$CONFIG/routed-networks.conf"
   printf 'vlan%s|yes|1500\n' "$overflow_index" >>"$STUB_STATE_DIR/links.state"
   overflow_index=$((overflow_index + 1))
 done
@@ -567,7 +567,7 @@ test_start 'tunnel uses the new route-selected endpoint'
 assert_contains "$(cat "$STUB_STATE_DIR/tunnel.state")" "TUN_LOCAL=$NEXT_LOCAL_V6"
 test_start 'new tagged outer rule replaces only old tagged identity'
 assert_eq "$(cat "$STUB_STATE_DIR/ip6tables.state")" "UBIOS_INPUT_USER_HOOK|-s 2001:db8:ffff::1/128 -d $LOCAL_V6/128 -p 4 -j ACCEPT
-UBIOS_INPUT_USER_HOOK|-s 2001:db8:ffff::1/128 -d $NEXT_LOCAL_V6/128 -p 4 -m comment --comment v6plus-static-ip -j ACCEPT"
+UBIOS_INPUT_USER_HOOK|-s 2001:db8:ffff::1/128 -d $NEXT_LOCAL_V6/128 -p 4 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT"
 test_start 'endpoint transition persists new local endpoint'
 assert_contains "$(cat "$STATE/last-apply.env")" "LOCAL_V6=$NEXT_LOCAL_V6"
 
@@ -679,12 +679,12 @@ assert_eq "$(grep -F -x -c -- 'iptables -t nat -S' "$STUB_LOG")" 4
 
 new_case transient-xtables-mutation-lock
 printf '%s\n' \
-  '1|iptables -t nat -A UBIOS_POSTROUTING_USER_HOOK -s 192.168.20.0/24 -o ip6tnl1 -m comment --comment v6plus-static-ip -j SNAT --to-source 203.0.113.42' \
+  '1|iptables -t nat -A UBIOS_POSTROUTING_USER_HOOK -s 192.168.20.0/24 -o ip6tnl1 -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source 203.0.113.42' \
   >"$STUB_STATE_DIR/lock-at.invocations"
 run_apply apply
 assert_run_success 'transient xtables lock during managed SNAT mutation is retried'
 test_start 'managed SNAT mutation ran again after lock contention'
-assert_eq "$(grep -F -x -c -- 'iptables -t nat -A UBIOS_POSTROUTING_USER_HOOK -s 192.168.20.0/24 -o ip6tnl1 -m comment --comment v6plus-static-ip -j SNAT --to-source 203.0.113.42' "$STUB_LOG")" 2
+assert_eq "$(grep -F -x -c -- 'iptables -t nat -A UBIOS_POSTROUTING_USER_HOOK -s 192.168.20.0/24 -o ip6tnl1 -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source 203.0.113.42' "$STUB_LOG")" 2
 
 # Fix round 1: later ownership is semantic, complete, and duplicate-aware.
 new_case route-legal-attributes
@@ -705,7 +705,7 @@ run_apply apply
 assert_run_success 'canonical firewall fixture converges'
 : >"$STUB_STATE_DIR/firewall.canonicalize"
 cat >"$STUB_STATE_DIR/ip6tables.s-output" <<EOF
--A UBIOS_INPUT_USER_HOOK -s 2001:db8:ffff::1/128 -d 2001:db8:1234:30:cb:71:2a00:0/128 -p ipencap -m comment --comment v6plus-static-ip -j ACCEPT
+-A UBIOS_INPUT_USER_HOOK -s 2001:db8:ffff::1/128 -d 2001:db8:1234:30:cb:71:2a00:0/128 -p ipencap -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT
 EOF
 run_apply apply
 assert_run_success 'later ownership accepts canonical protocol spelling'
@@ -726,9 +726,9 @@ sed -n '1p' "$STUB_STATE_DIR/ip6tables.state" >>"$STUB_STATE_DIR/ip6tables.state
 run_apply off
 assert_run_success 'off deletes all exact tagged duplicates'
 test_start 'off leaves no tagged IPv4 duplicate'
-assert_not_contains "$(cat "$STUB_STATE_DIR/iptables.state")" 'v6plus-static-ip'
+assert_not_contains "$(cat "$STUB_STATE_DIR/iptables.state")" 'unifi-jpix-tunnel-repair'
 test_start 'off leaves no tagged IPv6 duplicate'
-assert_not_contains "$(cat "$STUB_STATE_DIR/ip6tables.state")" 'v6plus-static-ip'
+assert_not_contains "$(cat "$STUB_STATE_DIR/ip6tables.state")" 'unifi-jpix-tunnel-repair'
 
 # Fix round 1: reconcile chain and outer-policy transitions explicitly.
 new_case nat-chain-transition
@@ -781,8 +781,8 @@ assert_contains "$(cat "$RUN_OUTPUT")" 'ERROR state_local='
 
 # Fix round 1: interfaces and original tunnel mode are strict data.
 new_case unsafe-config-interface
-sed 's/^WAN_IF=.*/WAN_IF=eth9|injected/' "$CONFIG/v6plus.env" >"$CONFIG/v6plus.tmp"
-mv "$CONFIG/v6plus.tmp" "$CONFIG/v6plus.env"
+sed 's/^WAN_IF=.*/WAN_IF=eth9|injected/' "$CONFIG/gateway.conf" >"$CONFIG/v6plus.tmp"
+mv "$CONFIG/v6plus.tmp" "$CONFIG/gateway.conf"
 unsafe_config_physical=$(physical_state)
 run_apply apply
 test_start 'unsafe configured interface is a configuration error'
@@ -791,8 +791,8 @@ test_start 'unsafe configured interface performs no mutation'
 assert_eq "$(physical_state)" "$unsafe_config_physical"
 
 new_case overlong-config-interface
-sed 's/^TUN_IF=.*/TUN_IF=interface-name-too-long/' "$CONFIG/v6plus.env" >"$CONFIG/v6plus.tmp"
-mv "$CONFIG/v6plus.tmp" "$CONFIG/v6plus.env"
+sed 's/^TUN_IF=.*/TUN_IF=interface-name-too-long/' "$CONFIG/gateway.conf" >"$CONFIG/v6plus.tmp"
+mv "$CONFIG/v6plus.tmp" "$CONFIG/gateway.conf"
 run_apply apply
 test_start 'overlong configured interface is rejected'
 assert_eq "$RUN_STATUS" 2
@@ -827,7 +827,7 @@ run_apply apply
 assert_run_success 'systemctl error fixture converges'
 systemctl_error_physical=$(physical_state)
 systemctl_error_runtime=$(runtime_state)
-printf 'v6plus-watch.service\n' >"$STUB_STATE_DIR/systemctl.fail"
+printf 'unifi-jpix-tunnel-repair-watch.service\n' >"$STUB_STATE_DIR/systemctl.fail"
 run_apply off
 assert_run_failure 'off blocks on systemctl inspection error'
 test_start 'systemctl inspection error preserves physical state'
@@ -881,7 +881,7 @@ assert_eq "$(physical_state)$(runtime_state)" "$dry_inspect_physical$dry_inspect
 new_case dry-inspect-ipv4-membership
 dry_inspect_physical=$(physical_state)
 dry_inspect_runtime=$(runtime_state)
-printf '%s\n' 'iptables -t nat -C UBIOS_POSTROUTING_USER_HOOK -s 192.168.20.0/24 -o ip6tnl1 -m comment --comment v6plus-static-ip -j SNAT --to-source 203.0.113.42' >"$STUB_STATE_DIR/fail.invocations"
+printf '%s\n' 'iptables -t nat -C UBIOS_POSTROUTING_USER_HOOK -s 192.168.20.0/24 -o ip6tnl1 -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source 203.0.113.42' >"$STUB_STATE_DIR/fail.invocations"
 run_apply --dry-run apply
 assert_run_failure 'dry-run IPv4 membership inspection error is surfaced'
 test_start 'dry-run IPv4 membership inspection reports a stable phase'
@@ -892,7 +892,7 @@ assert_eq "$(physical_state)$(runtime_state)" "$dry_inspect_physical$dry_inspect
 new_case dry-inspect-ipv6-membership
 dry_inspect_physical=$(physical_state)
 dry_inspect_runtime=$(runtime_state)
-printf 'ip6tables -C UBIOS_INPUT_USER_HOOK -s 2001:db8:ffff::1/128 -d %s/128 -p 4 -m comment --comment v6plus-static-ip -j ACCEPT\n' "$LOCAL_V6" >"$STUB_STATE_DIR/fail.invocations"
+printf 'ip6tables -C UBIOS_INPUT_USER_HOOK -s 2001:db8:ffff::1/128 -d %s/128 -p 4 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT\n' "$LOCAL_V6" >"$STUB_STATE_DIR/fail.invocations"
 run_apply --dry-run apply
 assert_run_failure 'dry-run IPv6 membership inspection error is surfaced'
 test_start 'dry-run IPv6 membership inspection reports a stable phase'
@@ -917,16 +917,16 @@ new_case realistic-firewall-serialization
 run_apply apply
 assert_run_success 'realistic firewall serialization fixture converges'
 cat >"$STUB_STATE_DIR/iptables.nat.s-output" <<'EOF'
--A UBIOS_POSTROUTING_USER_HOOK --source 192.168.20.0/24 --out-interface ip6tnl1 --match comment --comment "v6plus-static-ip" --jump SNAT --to-source 203.0.113.42
--A UBIOS_POSTROUTING_USER_HOOK -s 192.168.10.0/24 -o ip6tnl1 -m comment --comment v6plus-static-ip -j SNAT --to-source 203.0.113.42
+-A UBIOS_POSTROUTING_USER_HOOK --source 192.168.20.0/24 --out-interface ip6tnl1 --match comment --comment "unifi-jpix-tunnel-repair" --jump SNAT --to-source 203.0.113.42
+-A UBIOS_POSTROUTING_USER_HOOK -s 192.168.10.0/24 -o ip6tnl1 -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source 203.0.113.42
 EOF
 cat >"$STUB_STATE_DIR/iptables.mangle.s-output" <<'EOF'
--A FORWARD --out-interface ip6tnl1 --protocol 6 --match tcp --tcp-flags SYN,RST SYN --match comment --comment "v6plus-static-ip" --jump TCPMSS --set-mss 1420
--A FORWARD --in-interface ip6tnl1 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss 1420
--A OUTPUT -o ip6tnl1 -p tcp --tcp-flags SYN,RST SYN -m comment --comment "v6plus-static-ip" -j TCPMSS --set-mss 1420
+-A FORWARD --out-interface ip6tnl1 --protocol 6 --match tcp --tcp-flags SYN,RST SYN --match comment --comment "unifi-jpix-tunnel-repair" --jump TCPMSS --set-mss 1420
+-A FORWARD --in-interface ip6tnl1 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss 1420
+-A OUTPUT -o ip6tnl1 -p tcp --tcp-flags SYN,RST SYN -m comment --comment "unifi-jpix-tunnel-repair" -j TCPMSS --set-mss 1420
 EOF
 cat >"$STUB_STATE_DIR/ip6tables.s-output" <<EOF
--A UBIOS_INPUT_USER_HOOK --source 2001:db8:ffff::1/128 --destination $LOCAL_V6/128 --protocol 4 --match comment --comment "v6plus-static-ip" --jump ACCEPT
+-A UBIOS_INPUT_USER_HOOK --source 2001:db8:ffff::1/128 --destination $LOCAL_V6/128 --protocol 4 --match comment --comment "unifi-jpix-tunnel-repair" --jump ACCEPT
 EOF
 run_apply apply
 assert_run_success 'later ownership accepts realistic equivalent firewall serializations'
@@ -934,27 +934,27 @@ assert_run_success 'later ownership accepts realistic equivalent firewall serial
 new_case missing-known-firewall-rule
 run_apply apply
 assert_run_success 'missing known firewall fixture converges'
-PATH=$APPLY_PATH iptables -t nat -D UBIOS_POSTROUTING_USER_HOOK -s 192.168.10.0/24 -o ip6tnl1 -m comment --comment v6plus-static-ip -j SNAT --to-source 203.0.113.42
+PATH=$APPLY_PATH iptables -t nat -D UBIOS_POSTROUTING_USER_HOOK -s 192.168.10.0/24 -o ip6tnl1 -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source 203.0.113.42
 run_apply apply
 assert_run_success 'later apply repairs a missing known tagged rule'
 test_start 'repaired known tagged rule is restored exactly once'
-assert_eq "$(grep -F -c -- 'nat|UBIOS_POSTROUTING_USER_HOOK|-s 192.168.10.0/24 -o ip6tnl1 -m comment --comment v6plus-static-ip -j SNAT --to-source 203.0.113.42' "$STUB_STATE_DIR/iptables.state")" 1
+assert_eq "$(grep -F -c -- 'nat|UBIOS_POSTROUTING_USER_HOOK|-s 192.168.10.0/24 -o ip6tnl1 -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source 203.0.113.42' "$STUB_STATE_DIR/iptables.state")" 1
 
 new_case unknown-realistic-tagged-rule
 run_apply apply
 assert_run_success 'unknown realistic tag fixture converges'
 cat >"$STUB_STATE_DIR/iptables.nat.s-output" <<'EOF'
--A UBIOS_POSTROUTING_USER_HOOK --source 192.168.20.0/24 --out-interface ip6tnl1 --match comment --comment "v6plus-static-ip" --jump SNAT --to-source 203.0.113.42
--A UBIOS_POSTROUTING_USER_HOOK -s 192.168.10.0/24 -o ip6tnl1 -m comment --comment v6plus-static-ip -j SNAT --to-source 203.0.113.42
--A POSTROUTING --protocol tcp --match comment --comment "v6plus-static-ip" --jump ACCEPT
+-A UBIOS_POSTROUTING_USER_HOOK --source 192.168.20.0/24 --out-interface ip6tnl1 --match comment --comment "unifi-jpix-tunnel-repair" --jump SNAT --to-source 203.0.113.42
+-A UBIOS_POSTROUTING_USER_HOOK -s 192.168.10.0/24 -o ip6tnl1 -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source 203.0.113.42
+-A POSTROUTING --protocol tcp --match comment --comment "unifi-jpix-tunnel-repair" --jump ACCEPT
 EOF
 cat >"$STUB_STATE_DIR/iptables.mangle.s-output" <<'EOF'
--A FORWARD -o ip6tnl1 -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss 1420
--A FORWARD -i ip6tnl1 -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss 1420
--A OUTPUT -o ip6tnl1 -p tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss 1420
+-A FORWARD -o ip6tnl1 -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss 1420
+-A FORWARD -i ip6tnl1 -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss 1420
+-A OUTPUT -o ip6tnl1 -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss 1420
 EOF
 cat >"$STUB_STATE_DIR/ip6tables.s-output" <<EOF
--A UBIOS_INPUT_USER_HOOK -s 2001:db8:ffff::1/128 -d $LOCAL_V6/128 -p 4 -m comment --comment v6plus-static-ip -j ACCEPT
+-A UBIOS_INPUT_USER_HOOK -s 2001:db8:ffff::1/128 -d $LOCAL_V6/128 -p 4 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT
 EOF
 assert_rejected_unchanged 'singleton unknown realistically serialized tagged rule'
 
@@ -969,9 +969,9 @@ run_apply --dry-run apply
 assert_run_success 'dry NAT-chain transition produces a plan'
 dry_transition_output=$(cat "$RUN_OUTPUT")
 test_start 'dry NAT-chain transition plans old-chain exact deletion'
-assert_contains "$dry_transition_output" '[dry-run] iptables -t nat -D UBIOS_POSTROUTING_USER_HOOK -s 192.168.20.0/24 -o ip6tnl1 -m comment --comment v6plus-static-ip -j SNAT --to-source [FIXED_V4]'
+assert_contains "$dry_transition_output" '[dry-run] iptables -t nat -D UBIOS_POSTROUTING_USER_HOOK -s 192.168.20.0/24 -o ip6tnl1 -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source [FIXED_V4]'
 test_start 'dry NAT-chain transition plans new-chain exact addition'
-assert_contains "$dry_transition_output" '[dry-run] iptables -t nat -A POSTROUTING -s 192.168.20.0/24 -o ip6tnl1 -m comment --comment v6plus-static-ip -j SNAT --to-source [FIXED_V4]'
+assert_contains "$dry_transition_output" '[dry-run] iptables -t nat -A POSTROUTING -s 192.168.20.0/24 -o ip6tnl1 -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source [FIXED_V4]'
 test_start 'dry NAT-chain transition writes no state'
 assert_eq "$(physical_state)$(runtime_state)" "$dry_transition_physical$dry_transition_runtime"
 
@@ -979,7 +979,7 @@ assert_eq "$(physical_state)$(runtime_state)" "$dry_transition_physical$dry_tran
 new_case status-unknown-ipv4-tag
 run_apply apply
 assert_run_success 'status unknown IPv4 tag fixture converges'
-printf 'nat|POSTROUTING|-s 10.0.0.0/8 -m comment --comment v6plus-static-ip -j ACCEPT\n' >>"$STUB_STATE_DIR/iptables.state"
+printf 'nat|POSTROUTING|-s 10.0.0.0/8 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT\n' >>"$STUB_STATE_DIR/iptables.state"
 status_unknown_before=$(physical_state)
 run_apply status
 assert_run_failure 'status rejects a singleton unknown tagged IPv4 rule'
@@ -991,7 +991,7 @@ assert_eq "$(physical_state)" "$status_unknown_before"
 new_case status-unknown-ipv6-tag
 run_apply apply
 assert_run_success 'status unknown IPv6 tag fixture converges'
-printf 'INPUT|-s 2001:db8:aaaa::1/128 -m comment --comment v6plus-static-ip -j ACCEPT\n' >>"$STUB_STATE_DIR/ip6tables.state"
+printf 'INPUT|-s 2001:db8:aaaa::1/128 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT\n' >>"$STUB_STATE_DIR/ip6tables.state"
 status_unknown_before=$(physical_state)
 run_apply status
 assert_run_failure 'status rejects a singleton unknown tagged IPv6 rule'
@@ -1054,7 +1054,7 @@ assert_run_success 'firewall pre-record failure fixture converges'
 install_interleaved_firewall_duplicates
 firewall_position_physical=$(physical_state)
 firewall_position_runtime=$(runtime_state)
-printf 'ip6tables -D UBIOS_INPUT_USER_HOOK -s 2001:db8:ffff::1/128 -d %s/128 -p 4 -m comment --comment v6plus-static-ip -j ACCEPT\n' "$LOCAL_V6" >"$STUB_STATE_DIR/fail-once.invocations"
+printf 'ip6tables -D UBIOS_INPUT_USER_HOOK -s 2001:db8:ffff::1/128 -d %s/128 -p 4 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT\n' "$LOCAL_V6" >"$STUB_STATE_DIR/fail-once.invocations"
 run_apply off
 assert_run_failure 'failure after firewall journal and before delete is surfaced'
 test_start 'pre-record replay preserves interleaved firewall order byte-exact'
@@ -1066,7 +1066,7 @@ assert_run_success 'firewall signal rollback fixture converges'
 install_interleaved_firewall_duplicates
 firewall_position_physical=$(physical_state)
 firewall_position_runtime=$(runtime_state)
-printf 'ip6tables -D UBIOS_INPUT_USER_HOOK -s 2001:db8:ffff::1/128 -d %s/128 -p 4 -m comment --comment v6plus-static-ip -j ACCEPT\n' "$LOCAL_V6" >"$STUB_STATE_DIR/signal-after.invocations"
+printf 'ip6tables -D UBIOS_INPUT_USER_HOOK -s 2001:db8:ffff::1/128 -d %s/128 -p 4 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT\n' "$LOCAL_V6" >"$STUB_STATE_DIR/signal-after.invocations"
 run_apply off
 assert_run_failure 'signal after exact managed firewall deletion is surfaced'
 test_start 'signal rollback restores interleaved IPv4 and IPv6 order byte-exact'
@@ -1079,7 +1079,7 @@ assert_run_success 'route attribute rollback fixture converges'
 awk -F'|' 'BEGIN { OFS="|" } $2 == "192.168.10.0/24" { $4="proto static metric 10 src 203.0.113.42" } { print }' \
   "$STUB_STATE_DIR/routes.state" >"$STUB_STATE_DIR/routes.tmp"
 mv "$STUB_STATE_DIR/routes.tmp" "$STUB_STATE_DIR/routes.state"
-printf 'br0 192.168.20.0/24\n' >"$CONFIG/networks.conf"
+printf 'br0 192.168.20.0/24\n' >"$CONFIG/routed-networks.conf"
 route_attribute_physical=$(physical_state)
 route_attribute_runtime=$(runtime_state)
 V6PLUS_TEST_FAIL_JOURNAL_TYPE=STATE_MANAGED_RESTORE
@@ -1144,8 +1144,8 @@ assert_eq "$(physical_state)$(runtime_state)" "$off_unknown_rule_physical$off_un
 new_case off-config-tunnel-identity
 run_apply apply
 assert_run_success 'off tunnel identity fixture converges'
-sed 's/^TUN_IF=.*/TUN_IF=ip6tnl2/' "$CONFIG/v6plus.env" >"$CONFIG/v6plus.tmp"
-mv "$CONFIG/v6plus.tmp" "$CONFIG/v6plus.env"
+sed 's/^TUN_IF=.*/TUN_IF=ip6tnl2/' "$CONFIG/gateway.conf" >"$CONFIG/v6plus.tmp"
+mv "$CONFIG/v6plus.tmp" "$CONFIG/gateway.conf"
 sed 's/^TUN_IF=.*/TUN_IF=ip6tnl2/' "$STUB_STATE_DIR/tunnel.state" >"$STUB_STATE_DIR/tunnel.tmp"
 mv "$STUB_STATE_DIR/tunnel.tmp" "$STUB_STATE_DIR/tunnel.state"
 sed 's/^ip6tnl1|/ip6tnl2|/' "$STUB_STATE_DIR/addr4.state" >"$STUB_STATE_DIR/addr4.tmp"
@@ -1168,14 +1168,14 @@ assert_eq "$(physical_state)$(runtime_state)" "$off_identity_physical$off_identi
 
 # Fix round 3: the management tag is reserved across every available firewall table.
 new_case global-first-ipv4-filter-tag
-printf 'filter|INPUT|-p tcp -m comment --comment v6plus-static-ip -j ACCEPT\n' >"$STUB_STATE_DIR/iptables.state"
+printf 'filter|INPUT|-p tcp -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT\n' >"$STUB_STATE_DIR/iptables.state"
 global_first_log_lines=$(wc -l <"$STUB_LOG" | tr -d ' ')
 assert_rejected_unchanged 'first apply IPv4 filter management-tag collision'
 test_start 'first apply IPv4 filter tag collision invokes no mutation command'
 assert_eq "$(mutation_log_after "$global_first_log_lines")" ''
 
 new_case global-first-ipv6-nat-tag
-printf 'nat|PREROUTING|-p 4 -m comment --comment v6plus-static-ip -j ACCEPT\n' >"$STUB_STATE_DIR/ip6tables-extra.state"
+printf 'nat|PREROUTING|-p 4 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT\n' >"$STUB_STATE_DIR/ip6tables-extra.state"
 global_first_log_lines=$(wc -l <"$STUB_LOG" | tr -d ' ')
 assert_rejected_unchanged 'first apply IPv6 non-filter management-tag collision'
 test_start 'first apply IPv6 non-filter tag collision invokes no mutation command'
@@ -1184,32 +1184,32 @@ assert_eq "$(mutation_log_after "$global_first_log_lines")" ''
 new_case global-later-ipv4-raw-tag
 run_apply apply
 assert_run_success 'later IPv4 raw tag fixture converges'
-printf 'raw|PREROUTING|-s 10.1.0.0/16 -m comment --comment v6plus-static-ip -j ACCEPT\n' >>"$STUB_STATE_DIR/iptables.state"
+printf 'raw|PREROUTING|-s 10.1.0.0/16 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT\n' >>"$STUB_STATE_DIR/iptables.state"
 assert_rejected_unchanged 'later apply IPv4 raw unknown management tag'
 
 new_case global-later-ipv4-filter-tag
 run_apply apply
 assert_run_success 'later IPv4 filter tag fixture converges'
-printf 'filter|FORWARD|-s 10.2.0.0/16 -m comment --comment v6plus-static-ip -j DROP\n' >>"$STUB_STATE_DIR/iptables.state"
+printf 'filter|FORWARD|-s 10.2.0.0/16 -m comment --comment unifi-jpix-tunnel-repair -j DROP\n' >>"$STUB_STATE_DIR/iptables.state"
 assert_rejected_unchanged 'later apply IPv4 filter unknown management tag'
 
 new_case global-later-ipv6-nat-tag
 run_apply apply
 assert_run_success 'later IPv6 nat tag fixture converges'
-printf 'nat|OUTPUT|-d 2001:db8:aaaa::/64 -m comment --comment v6plus-static-ip -j ACCEPT\n' >>"$STUB_STATE_DIR/ip6tables-extra.state"
+printf 'nat|OUTPUT|-d 2001:db8:aaaa::/64 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT\n' >>"$STUB_STATE_DIR/ip6tables-extra.state"
 assert_rejected_unchanged 'later apply IPv6 nat unknown management tag'
 
 new_case global-later-ipv6-mangle-tag
 run_apply apply
 assert_run_success 'later IPv6 mangle tag fixture converges'
-printf 'mangle|FORWARD|-d 2001:db8:bbbb::/64 -m comment --comment v6plus-static-ip -j DROP\n' >>"$STUB_STATE_DIR/ip6tables-extra.state"
+printf 'mangle|FORWARD|-d 2001:db8:bbbb::/64 -m comment --comment unifi-jpix-tunnel-repair -j DROP\n' >>"$STUB_STATE_DIR/ip6tables-extra.state"
 assert_rejected_unchanged 'later apply IPv6 mangle unknown management tag'
 
 new_case global-status-outside-tag
 run_apply apply
 assert_run_success 'global status tag fixture converges'
-printf 'security|OUTPUT|-d 192.0.2.0/24 -m comment --comment v6plus-static-ip -j ACCEPT\n' >>"$STUB_STATE_DIR/iptables.state"
-printf 'raw|PREROUTING|-s 2001:db8:cccc::/64 -m comment --comment v6plus-static-ip -j ACCEPT\n' >>"$STUB_STATE_DIR/ip6tables-extra.state"
+printf 'security|OUTPUT|-d 192.0.2.0/24 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT\n' >>"$STUB_STATE_DIR/iptables.state"
+printf 'raw|PREROUTING|-s 2001:db8:cccc::/64 -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT\n' >>"$STUB_STATE_DIR/ip6tables-extra.state"
 global_status_before=$(physical_state)
 run_apply status
 assert_run_failure 'status rejects management tags outside target tables'
@@ -1221,7 +1221,7 @@ assert_eq "$(physical_state)" "$global_status_before"
 new_case global-off-outside-tag
 run_apply apply
 assert_run_success 'global off tag fixture converges'
-printf 'filter|INPUT|-s 10.3.0.0/16 -m comment --comment v6plus-static-ip -j DROP\n' >>"$STUB_STATE_DIR/iptables.state"
+printf 'filter|INPUT|-s 10.3.0.0/16 -m comment --comment unifi-jpix-tunnel-repair -j DROP\n' >>"$STUB_STATE_DIR/iptables.state"
 global_off_physical=$(physical_state)
 global_off_runtime=$(runtime_state)
 global_off_log_lines=$(wc -l <"$STUB_LOG" | tr -d ' ')
@@ -1307,15 +1307,15 @@ COMMIT
 *mangle
 :FORWARD ACCEPT [0:0]
 :OUTPUT ACCEPT [0:0]
--A FORWARD --out-interface ip6tnl1 --protocol 6 --match tcp --tcp-flags SYN,RST SYN --match comment --comment "v6plus-static-ip" --jump TCPMSS --set-mss 1420
--A FORWARD --in-interface ip6tnl1 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment v6plus-static-ip -j TCPMSS --set-mss 1420
--A OUTPUT -o ip6tnl1 -p tcp --tcp-flags SYN,RST SYN -m comment --comment "v6plus-static-ip" -j TCPMSS --set-mss 1420
+-A FORWARD --out-interface ip6tnl1 --protocol 6 --match tcp --tcp-flags SYN,RST SYN --match comment --comment "unifi-jpix-tunnel-repair" --jump TCPMSS --set-mss 1420
+-A FORWARD --in-interface ip6tnl1 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss 1420
+-A OUTPUT -o ip6tnl1 -p tcp --tcp-flags SYN,RST SYN -m comment --comment "unifi-jpix-tunnel-repair" -j TCPMSS --set-mss 1420
 COMMIT
 *nat
 :POSTROUTING ACCEPT [0:0]
 :UBIOS_POSTROUTING_USER_HOOK - [0:0]
--A UBIOS_POSTROUTING_USER_HOOK --source 192.168.20.0/24 --out-interface ip6tnl1 --match comment --comment "v6plus-static-ip" --jump SNAT --to-source 203.0.113.42
--A UBIOS_POSTROUTING_USER_HOOK -s 192.168.10.0/24 -o ip6tnl1 -m comment --comment v6plus-static-ip -j SNAT --to-source 203.0.113.42
+-A UBIOS_POSTROUTING_USER_HOOK --source 192.168.20.0/24 --out-interface ip6tnl1 --match comment --comment "unifi-jpix-tunnel-repair" --jump SNAT --to-source 203.0.113.42
+-A UBIOS_POSTROUTING_USER_HOOK -s 192.168.10.0/24 -o ip6tnl1 -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source 203.0.113.42
 COMMIT
 *filter
 :INPUT ACCEPT [0:0]
@@ -1341,7 +1341,7 @@ COMMIT
 *filter
 :INPUT ACCEPT [0:0]
 :UBIOS_INPUT_USER_HOOK - [0:0]
--A UBIOS_INPUT_USER_HOOK --source 2001:db8:ffff::1/128 --destination $LOCAL_V6/128 --protocol 4 --match comment --comment "v6plus-static-ip" --jump ACCEPT
+-A UBIOS_INPUT_USER_HOOK --source 2001:db8:ffff::1/128 --destination $LOCAL_V6/128 --protocol 4 --match comment --comment "unifi-jpix-tunnel-repair" --jump ACCEPT
 COMMIT
 *security
 :INPUT ACCEPT [0:0]

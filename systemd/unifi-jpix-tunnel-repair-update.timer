@@ -1,12 +1,12 @@
 [Unit]
-Description=Check whether the JPIX v6plus address update is due
+Description=Check whether the JPIX fixed-IP endpoint update is due
 
 [Timer]
 OnBootSec=10min
 OnUnitActiveSec=1min
 AccuracySec=10s
 Persistent=true
-Unit=v6plus-update.service
+Unit=unifi-jpix-tunnel-repair-update.service
 
 [Install]
 WantedBy=timers.target

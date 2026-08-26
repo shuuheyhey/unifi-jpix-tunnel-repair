@@ -1,0 +1,20 @@
+[Unit]
+Description=Monitor UniFi netlink changes for JPIX tunnel repair
+Requires=unifi-jpix-tunnel-repair-apply.service
+After=unifi-jpix-tunnel-repair-apply.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ReadOnlyPaths=/data/unifi-jpix-tunnel-repair/scripts /data/unifi-jpix-tunnel-repair/config
+ExecStart=/data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-trigger.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

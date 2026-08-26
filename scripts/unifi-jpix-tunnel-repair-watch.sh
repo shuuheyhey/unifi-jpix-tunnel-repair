@@ -1,7 +1,7 @@
 #!/bin/sh
 set -u
 
-ROOT=${V6PLUS_ROOT:-/data/v6plus}
+ROOT=${V6PLUS_ROOT:-/data/unifi-jpix-tunnel-repair}
 CONFIG_DIR=$ROOT/config
 ONCE=0
 config_seen=0
@@ -27,7 +27,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ "${V6PLUS_LIB+x}" = x ]; then LIB=$V6PLUS_LIB; else LIB=$ROOT/scripts/v6plus-lib.sh; fi
+if [ "${V6PLUS_LIB+x}" = x ]; then LIB=$V6PLUS_LIB; else LIB=$ROOT/scripts/unifi-jpix-tunnel-repair-lib.sh; fi
 [ -f "$LIB" ] || { printf 'watch library not found\n' >&2; exit 2; }
 # Trusted program code only. Configuration and state files are parsed strictly as data.
 . "$LIB"
@@ -36,9 +36,9 @@ unset WATCH_PRE_V6 WATCH_POST_V6 WATCH_STATE_LOCAL watch_line watch_key watch_va
 unset watch_state_local watch_state_expanded
 v6_clear_ipv6_helper_scratch
 
-V6PLUS_STATE_DIR=${V6PLUS_STATE_DIR:-/data/v6plus/state}
-V6PLUS_APPLY_CMD=${V6PLUS_APPLY_CMD:-$ROOT/scripts/v6plus-apply.sh}
-V6PLUS_UPDATE_CMD=${V6PLUS_UPDATE_CMD:-$ROOT/scripts/v6plus-update.sh}
+V6PLUS_STATE_DIR=${V6PLUS_STATE_DIR:-/data/unifi-jpix-tunnel-repair/state}
+V6PLUS_APPLY_CMD=${V6PLUS_APPLY_CMD:-$ROOT/scripts/unifi-jpix-tunnel-repair-apply.sh}
+V6PLUS_UPDATE_CMD=${V6PLUS_UPDATE_CMD:-$ROOT/scripts/unifi-jpix-tunnel-repair-update.sh}
 V6_SLEEP_CMD=${V6_SLEEP_CMD:-sleep}
 LAST_APPLY_FILE=$V6PLUS_STATE_DIR/last-apply.env
 WATCH_TEMP_DIR=
@@ -60,7 +60,7 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-if ! v6_load_main_config "$CONFIG_DIR/v6plus.env" "$CONFIG_DIR/networks.conf" ||
+if ! v6_load_main_config "$CONFIG_DIR/gateway.conf" "$CONFIG_DIR/routed-networks.conf" ||
    ! v6_validate_main_config; then
   printf 'invalid watch configuration\n' >&2
   exit 2
@@ -85,7 +85,7 @@ if [ "${V6PLUS_NOW_CMD+x}" = x ]; then
   command -v "$V6PLUS_NOW_CMD" >/dev/null 2>&1 || { v6_log 'ERROR phase=dependency'; exit 1; }
 fi
 
-WATCH_TEMP_DIR=$(umask 077 && mktemp -d "${TMPDIR:-/tmp}/v6plus-watch.XXXXXX") || { v6_log 'ERROR phase=temp'; exit 1; }
+WATCH_TEMP_DIR=$(umask 077 && mktemp -d "${TMPDIR:-/tmp}/unifi-jpix-tunnel-repair-watch.XXXXXX") || { v6_log 'ERROR phase=temp'; exit 1; }
 chmod 700 "$WATCH_TEMP_DIR" || exit 1
 WATCH_STDOUT=$WATCH_TEMP_DIR/command.out
 WATCH_STDERR=$WATCH_TEMP_DIR/command.err

@@ -5,10 +5,10 @@ umask 077
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/testlib.sh"
 
-SCRIPT=$ROOT/scripts/v6plus-watch.sh
+SCRIPT=$ROOT/scripts/unifi-jpix-tunnel-repair-watch.sh
 STUB=$ROOT/tests/stubs/runtime
 TMP_BASE=$(CDPATH= cd -- "${TMPDIR:-/tmp}" && pwd -P)
-TMP=${TMP_BASE%/}/v6plus-watch-test.$$
+TMP=${TMP_BASE%/}/unifi-jpix-tunnel-repair-watch-test.$$
 OLD_ENDPOINT=2001:0db8:1234:0030:00cb:0071:2a00:0000
 NEW_ENDPOINT=2001:0db8:1234:0031:00cb:0071:2a00:0000
 SECRET_SENTINEL='watch-secret-user:p&a ss%word'
@@ -40,7 +40,7 @@ new_case() {
   CASE=$TMP/$1
   mkdir -p "$CASE/config" "$CASE/state"
   chmod 700 "$CASE/config" "$CASE/state"
-  cat >"$CASE/config/v6plus.env" <<'EOF'
+  cat >"$CASE/config/gateway.conf" <<'EOF'
 WAN_IF=eth9
 TUN_IF=ip6tnl1
 STATIC_V4=203.0.113.42
@@ -54,10 +54,10 @@ WATCH_INTERVAL_SECONDS=5
 UPDATE_INTERVAL_SECONDS=600
 OUTER_IPIP_ALLOW=auto
 EOF
-  printf 'br0 192.168.20.0/24\nbr10 192.168.10.0/24\n' >"$CASE/config/networks.conf"
+  printf 'br0 192.168.20.0/24\nbr10 192.168.10.0/24\n' >"$CASE/config/routed-networks.conf"
   printf 'UPDATE_URL=https://updates.example.invalid/path\nUPDATE_USERNAME=%s\nUPDATE_PASSWORD=%s\nALLOW_INSECURE_UPDATE_HTTP=no\nINSECURE_UPDATE_HTTP_HOST=\n' \
-    "$SECRET_SENTINEL" "$SECRET_SENTINEL" >"$CASE/config/update.env"
-  chmod 600 "$CASE/config/update.env"
+    "$SECRET_SENTINEL" "$SECRET_SENTINEL" >"$CASE/config/provider-update.conf"
+  chmod 600 "$CASE/config/provider-update.conf"
   : >"$CASE/apply.log"
   : >"$CASE/update.log"
   : >"$CASE/sleep.log"
@@ -74,7 +74,7 @@ EOF
   printf '0\n' >"$CASE/clock"
   printf '%s\n' "$OLD_ENDPOINT" >"$CASE/apply-endpoint"
 
-  V6PLUS_LIB=$ROOT/scripts/v6plus-lib.sh
+  V6PLUS_LIB=$ROOT/scripts/unifi-jpix-tunnel-repair-lib.sh
   V6PLUS_STATE_DIR=$CASE/state
   V6PLUS_LOCK_DIR=$CASE/lock
   V6_IP_CMD=$STUB/ip

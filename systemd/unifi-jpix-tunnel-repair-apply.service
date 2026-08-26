@@ -1,0 +1,22 @@
+[Unit]
+Description=Apply UniFi-managed JPIX fixed-IP tunnel repair state
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/data/unifi-jpix-tunnel-repair/config/gateway.conf
+ConditionPathExists=/data/unifi-jpix-tunnel-repair/config/routed-networks.conf
+ConditionPathExists=/data/unifi-jpix-tunnel-repair/config/provider-update.conf
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ReadOnlyPaths=/data/unifi-jpix-tunnel-repair/scripts /data/unifi-jpix-tunnel-repair/config
+ExecStartPre=/data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-wait-wan.sh --timeout 300
+ExecStart=/data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-apply.sh apply
+ExecStartPost=-/data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-update.sh --force
+RemainAfterExit=yes
+TimeoutStartSec=480

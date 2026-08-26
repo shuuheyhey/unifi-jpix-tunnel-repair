@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-ROOT=${V6PLUS_ROOT:-/data/v6plus}
+ROOT=${V6PLUS_ROOT:-/data/unifi-jpix-tunnel-repair}
 CONFIG_DIR=$ROOT/config
 DIAG_SKIP_CONNECTIVITY=${DIAG_SKIP_CONNECTIVITY:-0}
 VERSION_FILE=${V6PLUS_VERSION_FILE:-/usr/lib/version}
@@ -41,12 +41,12 @@ done
 if [ "${V6PLUS_LIB+x}" = x ]; then
   LIB=$V6PLUS_LIB
 else
-  LIB=$ROOT/scripts/v6plus-lib.sh
+  LIB=$ROOT/scripts/unifi-jpix-tunnel-repair-lib.sh
 fi
 [ -f "$LIB" ] || { printf 'diagnostic library not found\n' >&2; exit 2; }
 # This is trusted program code. Configuration and state files are never sourced.
 . "$LIB"
-V6PLUS_STATE_DIR=${V6PLUS_STATE_DIR:-/data/v6plus/state}
+V6PLUS_STATE_DIR=${V6PLUS_STATE_DIR:-/data/unifi-jpix-tunnel-repair/state}
 
 DIAG_TEMP_DIR=
 DIAG_REPORT=
@@ -86,9 +86,9 @@ if [ -n "$FULL_OUTPUT" ]; then
   diag_parent=${FULL_OUTPUT%/*}
   [ -n "$diag_parent" ] || diag_parent=/
   v6_validate_canonical_secure_directory "$diag_parent" || { printf 'unsafe full output directory\n' >&2; exit 2; }
-  DIAG_TEMP_DIR=$(umask 077 && mktemp -d "$diag_parent/.v6plus-diag.XXXXXX") || exit 2
+  DIAG_TEMP_DIR=$(umask 077 && mktemp -d "$diag_parent/.unifi-jpix-tunnel-repair-diag.XXXXXX") || exit 2
 else
-  DIAG_TEMP_DIR=$(umask 077 && mktemp -d "${TMPDIR:-/tmp}/v6plus-diag.XXXXXX") || exit 2
+  DIAG_TEMP_DIR=$(umask 077 && mktemp -d "${TMPDIR:-/tmp}/unifi-jpix-tunnel-repair-diag.XXXXXX") || exit 2
 fi
 chmod 700 "$DIAG_TEMP_DIR" || exit 2
 DIAG_REPORT=$DIAG_TEMP_DIR/report
@@ -170,11 +170,11 @@ diag_iter_networks() {
 
 if [ "$DISCOVER" -eq 1 ]; then
   v6_validate_canonical_secure_directory "$CONFIG_DIR" &&
-    v6_validate_private_file "$CONFIG_DIR/v6plus.env" 600 || {
+    v6_validate_private_file "$CONFIG_DIR/gateway.conf" 600 || {
       printf 'invalid discovery configuration\n' >&2
       exit 2
     }
-  discover_load_main "$CONFIG_DIR/v6plus.env" || {
+  discover_load_main "$CONFIG_DIR/gateway.conf" || {
     printf 'invalid discovery configuration\n' >&2
     exit 2
   }
@@ -184,7 +184,7 @@ if [ "$DISCOVER" -eq 1 ]; then
   V6_TUN_MTU=
   network_rows=
 else
-  if ! v6_load_main_config "$CONFIG_DIR/v6plus.env" "$CONFIG_DIR/networks.conf"; then
+  if ! v6_load_main_config "$CONFIG_DIR/gateway.conf" "$CONFIG_DIR/routed-networks.conf"; then
     printf 'invalid diagnostic configuration\n' >&2
     exit 2
   fi
@@ -195,7 +195,7 @@ else
     exit 2
   fi
   V6_NETWORKS_CONFIG=$main_networks_config
-  network_rows=$(diag_iter_networks "$CONFIG_DIR/networks.conf") || {
+  network_rows=$(diag_iter_networks "$CONFIG_DIR/routed-networks.conf") || {
     printf 'invalid networks configuration\n' >&2
     exit 2
   }
@@ -440,7 +440,7 @@ outer_candidates=$(printf '%s\n' "$v6_input_snapshot" | awk -v chain="$v6_input_
   $3 == "-s" && $5 == "-d" &&
   $7 == "-p" && ($8 == "4" || $8 == "ipencap") &&
   $9 == "-m" && $10 == "comment" &&
-  $11 == "--comment" && $12 == "v6plus-static-ip" &&
+  $11 == "--comment" && $12 == "unifi-jpix-tunnel-repair" &&
   $13 == "-j" && $14 == "ACCEPT" {
     print $4 "|" $6
   }
@@ -491,7 +491,7 @@ mangle_snapshot=$(sanitize_snapshot "$mangle_snapshot")
 last_update_local=none
 last_update_succeeded=none
 last_update_http=none
-last_update_file=$V6PLUS_STATE_DIR/last-update.env
+last_update_file=$V6PLUS_STATE_DIR/last-provider-update.state
 if [ -e "$last_update_file" ] || [ -L "$last_update_file" ]; then
   if v6_validate_state_dir && v6_load_update_state "$last_update_file"; then
     last_update_local=$V6_LAST_UPDATE_LOCAL_V6

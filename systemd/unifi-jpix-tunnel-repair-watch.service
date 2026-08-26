@@ -1,0 +1,20 @@
+[Unit]
+Description=Watch UniFi-managed JPIX tunnel repair invariants
+Requires=unifi-jpix-tunnel-repair-apply.service
+After=unifi-jpix-tunnel-repair-apply.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ReadOnlyPaths=/data/unifi-jpix-tunnel-repair/scripts /data/unifi-jpix-tunnel-repair/config
+ExecStart=/data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-watch.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

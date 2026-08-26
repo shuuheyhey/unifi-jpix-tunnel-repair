@@ -1,7 +1,7 @@
 #!/bin/sh
 set -u
 
-ROOT=${V6PLUS_ROOT:-/data/v6plus}
+ROOT=${V6PLUS_ROOT:-/data/unifi-jpix-tunnel-repair}
 CONFIG_DIR=$ROOT/config
 FORCE=0
 config_seen=0
@@ -27,7 +27,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ "${V6PLUS_LIB+x}" = x ]; then LIB=$V6PLUS_LIB; else LIB=$ROOT/scripts/v6plus-lib.sh; fi
+if [ "${V6PLUS_LIB+x}" = x ]; then LIB=$V6PLUS_LIB; else LIB=$ROOT/scripts/unifi-jpix-tunnel-repair-lib.sh; fi
 [ -f "$LIB" ] || { printf 'update library not found\n' >&2; exit 2; }
 # This is trusted program code. Configuration and state records are parsed strictly as data.
 . "$LIB"
@@ -42,11 +42,11 @@ unset source_listing source_line source_kind source_token source_rest source_pre
 unset source_address_with_zone source_address source_zone source_expanded source_match source_status elapsed
 v6_clear_ipv6_helper_scratch
 
-V6PLUS_STATE_DIR=${V6PLUS_STATE_DIR:-/data/v6plus/state}
-V6PLUS_LOCK_DIR=${V6PLUS_LOCK_DIR:-/run/v6plus.lock}
+V6PLUS_STATE_DIR=${V6PLUS_STATE_DIR:-/data/unifi-jpix-tunnel-repair/state}
+V6PLUS_LOCK_DIR=${V6PLUS_LOCK_DIR:-/run/unifi-jpix-tunnel-repair.lock}
 V6_IP_CMD=${V6_IP_CMD:-ip}
 V6_CURL_CMD=${V6_CURL_CMD:-curl}
-LAST_UPDATE_FILE=$V6PLUS_STATE_DIR/last-update.env
+LAST_UPDATE_FILE=$V6PLUS_STATE_DIR/last-provider-update.state
 LOCK_HELD=0
 TEMP_DIR=
 BODY_FILE=
@@ -69,9 +69,9 @@ runtime_error() { v6_log "ERROR phase=$1"; return 1; }
 
 load_configuration() {
   v6_validate_canonical_secure_directory "$CONFIG_DIR" || return 1
-  v6_load_main_config "$CONFIG_DIR/v6plus.env" "$CONFIG_DIR/networks.conf" || return 1
+  v6_load_main_config "$CONFIG_DIR/gateway.conf" "$CONFIG_DIR/routed-networks.conf" || return 1
   v6_validate_main_config || return 1
-  v6_load_update_config "$CONFIG_DIR/update.env"
+  v6_load_update_config "$CONFIG_DIR/provider-update.conf"
 }
 
 safe_epoch() {
@@ -135,7 +135,7 @@ EOF
 }
 
 make_temp_dir() {
-  TEMP_DIR=$(umask 077 && mktemp -d "${TMPDIR:-/tmp}/v6plus-update.XXXXXX") || return 1
+  TEMP_DIR=$(umask 077 && mktemp -d "${TMPDIR:-/tmp}/unifi-jpix-tunnel-repair-update.XXXXXX") || return 1
   chmod 700 "$TEMP_DIR" || return 1
   BODY_FILE=$TEMP_DIR/body
   HTTP_FILE=$TEMP_DIR/http

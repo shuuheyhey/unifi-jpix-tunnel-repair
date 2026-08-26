@@ -122,7 +122,7 @@ curl_body=${curl_rest#*|}
 [ "$curl_body" != "$curl_rest" ] || exit 95
 cat "$curl_body" >"$curl_output"
 if [ "${CURL_PREPOSITION_ATOMIC_TMP:-0}" = 1 ]; then
-  mkdir "$V6PLUS_STATE_DIR/last-update.env.tmp.$PPID" 2>/dev/null || :
+  mkdir "$V6PLUS_STATE_DIR/last-provider-update.state.tmp.$PPID" 2>/dev/null || :
 fi
 printf '%s' "$curl_http"
 exit "$curl_transport"

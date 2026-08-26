@@ -1,7 +1,7 @@
 #!/bin/sh
 set -u
 
-ROOT=${V6PLUS_ROOT:-/data/v6plus}
+ROOT=${V6PLUS_ROOT:-/data/unifi-jpix-tunnel-repair}
 CONFIG_DIR=$ROOT/config
 config_seen=0
 
@@ -19,7 +19,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ "${V6PLUS_LIB+x}" = x ]; then LIB=$V6PLUS_LIB; else LIB=$ROOT/scripts/v6plus-lib.sh; fi
+if [ "${V6PLUS_LIB+x}" = x ]; then LIB=$V6PLUS_LIB; else LIB=$ROOT/scripts/unifi-jpix-tunnel-repair-lib.sh; fi
 [ -f "$LIB" ] || { printf 'trigger library not found\n' >&2; exit 2; }
 # Trusted program code only. Configuration and state are parsed below strictly as data.
 . "$LIB"
@@ -36,10 +36,10 @@ unset process_identity_output process_identity_proc_pid process_identity_signal_
 unset READY_SIGNAL_PID READY_PROC_PID READY_STARTTIME
 v6_clear_ipv6_helper_scratch
 
-V6PLUS_STATE_DIR=${V6PLUS_STATE_DIR:-/data/v6plus/state}
+V6PLUS_STATE_DIR=${V6PLUS_STATE_DIR:-/data/unifi-jpix-tunnel-repair/state}
 V6PLUS_MONITOR_CMD=${V6PLUS_MONITOR_CMD:-ip}
-V6PLUS_APPLY_CMD=${V6PLUS_APPLY_CMD:-$ROOT/scripts/v6plus-apply.sh}
-V6PLUS_UPDATE_CMD=${V6PLUS_UPDATE_CMD:-$ROOT/scripts/v6plus-update.sh}
+V6PLUS_APPLY_CMD=${V6PLUS_APPLY_CMD:-$ROOT/scripts/unifi-jpix-tunnel-repair-apply.sh}
+V6PLUS_UPDATE_CMD=${V6PLUS_UPDATE_CMD:-$ROOT/scripts/unifi-jpix-tunnel-repair-update.sh}
 V6_SLEEP_CMD=${V6_SLEEP_CMD:-sleep}
 V6PLUS_STARTUP_SLEEP_CMD=${V6PLUS_STARTUP_SLEEP_CMD:-sleep}
 V6PLUS_STARTUP_WAIT_TICKS=${V6PLUS_STARTUP_WAIT_TICKS:-5}
@@ -147,7 +147,7 @@ esac
     printf 'invalid trigger startup wait\n' >&2
     exit 2
   }
-if ! v6_load_main_config "$CONFIG_DIR/v6plus.env" "$CONFIG_DIR/networks.conf" ||
+if ! v6_load_main_config "$CONFIG_DIR/gateway.conf" "$CONFIG_DIR/routed-networks.conf" ||
    ! v6_validate_main_config; then
   printf 'invalid trigger configuration\n' >&2
   exit 2
@@ -165,7 +165,7 @@ if [ "${V6PLUS_IDENTITY_PROBE_CMD+x}" = x ]; then
 fi
 
 TRIGGER_NETWORKS=$(v6_iter_networks "$V6_NETWORKS_CONFIG") || { v6_log 'ERROR phase=networks'; exit 1; }
-TRIGGER_TEMP_DIR=$(umask 077 && mktemp -d "${TMPDIR:-/tmp}/v6plus-trigger.XXXXXX") || { v6_log 'ERROR phase=temp'; exit 1; }
+TRIGGER_TEMP_DIR=$(umask 077 && mktemp -d "${TMPDIR:-/tmp}/unifi-jpix-tunnel-repair-trigger.XXXXXX") || { v6_log 'ERROR phase=temp'; exit 1; }
 chmod 700 "$TRIGGER_TEMP_DIR" || exit 1
 TRIGGER_APPLY_OUT=$TRIGGER_TEMP_DIR/apply.out
 TRIGGER_APPLY_ERR=$TRIGGER_TEMP_DIR/apply.err

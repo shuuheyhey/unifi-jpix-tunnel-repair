@@ -31,7 +31,7 @@ if [ "${V6PLUS_ALLOW_NONROOT:-0}" != 1 ] && [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-DEPLOY_ROOT=${DESTDIR}/data/v6plus
+DEPLOY_ROOT=${DESTDIR}/data/unifi-jpix-tunnel-repair
 UNIT_ROOT=${DESTDIR}/etc/systemd/system
 
 secure_existing_dir() {

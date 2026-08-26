@@ -1,8 +1,8 @@
 # Configuration
 
-設定は `/data/v6plus/config` に置き、root所有、mode `0600` にします。設定ファイルはshellとしてsourceされませんが、改ざんを防ぐため権限検査に失敗すると処理を中止します。
+設定は `/data/unifi-jpix-tunnel-repair/config` に置き、root所有、mode `0600` にします。設定ファイルはshellとしてsourceされませんが、改ざんを防ぐため権限検査に失敗すると処理を中止します。
 
-## `v6plus.env`
+## `gateway.conf`
 
 - `WAN_IF`: BRへのIPv6 routeが選ぶWAN interface
 - `TUN_IF`: UniFiが作成したBR一致トンネル
@@ -14,11 +14,11 @@
 - `RULE_PREF_BASE`: 対象LAN数を含めて予約できるrule priority
 - `OUTER_IPIP_ALLOW`: `auto`、`yes`、`no`。確認前は `auto`
 
-## `networks.conf`
+## `routed-networks.conf`
 
 1行に `IFACE CIDR` を記載します。同じinterface、CIDR、rule priorityの重複は拒否されます。固定IP経路へ送るLANだけを列挙してください。
 
-## `update.env`
+## `provider-update.conf`
 
 `UPDATE_URL`、`UPDATE_USERNAME`、`UPDATE_PASSWORD` を契約情報から設定します。HTTPSを使用し、次を維持してください。
 
@@ -32,9 +32,9 @@ INSECURE_UPDATE_HTTP_HOST=
 ## Permissions
 
 ```sh
-sudo chown -R root:root /data/v6plus
-sudo chmod 755 /data/v6plus /data/v6plus/scripts
-sudo chmod 700 /data/v6plus/config /data/v6plus/state
-sudo chmod 755 /data/v6plus/scripts/*.sh
-sudo chmod 600 /data/v6plus/config/*
+sudo chown -R root:root /data/unifi-jpix-tunnel-repair
+sudo chmod 755 /data/unifi-jpix-tunnel-repair /data/unifi-jpix-tunnel-repair/scripts
+sudo chmod 700 /data/unifi-jpix-tunnel-repair/config /data/unifi-jpix-tunnel-repair/state
+sudo chmod 755 /data/unifi-jpix-tunnel-repair/scripts/*.sh
+sudo chmod 600 /data/unifi-jpix-tunnel-repair/config/*
 ```

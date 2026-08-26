@@ -5,7 +5,7 @@ umask 077
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/testlib.sh"
 
-UPDATE_SCRIPT=$ROOT/scripts/v6plus-update.sh
+UPDATE_SCRIPT=$ROOT/scripts/unifi-jpix-tunnel-repair-update.sh
 test_start 'update notification executable exists'
 if [ -x "$UPDATE_SCRIPT" ]; then
   pass
@@ -13,10 +13,10 @@ else
   fail "missing executable $UPDATE_SCRIPT"
   test_finish
 fi
-. "$ROOT/scripts/v6plus-lib.sh"
+. "$ROOT/scripts/unifi-jpix-tunnel-repair-lib.sh"
 
 TMP_BASE=$(CDPATH= cd -- "${TMPDIR:-/tmp}" && pwd -P)
-TMP=${TMP_BASE%/}/v6plus-update-test.$$
+TMP=${TMP_BASE%/}/unifi-jpix-tunnel-repair-update-test.$$
 trap 'rm -rf "$TMP"' EXIT HUP INT TERM
 mkdir -p "$TMP"
 
@@ -28,14 +28,14 @@ TEST_PASSWORD='p&a ss%word'
 
 export V6PLUS_ALLOW_DOCUMENTATION_ADDRESSES=1
 export V6PLUS_ALLOW_NONROOT=1
-export V6PLUS_LIB=$ROOT/scripts/v6plus-lib.sh
+export V6PLUS_LIB=$ROOT/scripts/unifi-jpix-tunnel-repair-lib.sh
 export V6PLUS_ROOT=$ROOT
 export V6PLUS_NOW=1700000000
 export V6_IP_CMD=ip
 
 write_main_config() {
   update_interval=$1
-  cat >"$CONFIG/v6plus.env" <<EOF
+  cat >"$CONFIG/gateway.conf" <<EOF
 WAN_IF=eth9
 TUN_IF=ip6tnl1
 STATIC_V4=203.0.113.42
@@ -49,18 +49,18 @@ WATCH_INTERVAL_SECONDS=5
 UPDATE_INTERVAL_SECONDS=$update_interval
 OUTER_IPIP_ALLOW=auto
 EOF
-  printf '%s\n' 'br0 192.168.20.0/24' >"$CONFIG/networks.conf"
+  printf '%s\n' 'br0 192.168.20.0/24' >"$CONFIG/routed-networks.conf"
 }
 
 write_update_config() {
-  cat >"$CONFIG/update.env" <<EOF
+  cat >"$CONFIG/provider-update.conf" <<EOF
 UPDATE_URL=https://update.example.invalid/update?service=fixed
 UPDATE_USERNAME=$TEST_USERNAME
 UPDATE_PASSWORD=$TEST_PASSWORD
 ALLOW_INSECURE_UPDATE_HTTP=no
 INSECURE_UPDATE_HTTP_HOST=
 EOF
-  chmod 600 "$CONFIG/update.env"
+  chmod 600 "$CONFIG/provider-update.conf"
 }
 
 new_case() {
@@ -225,18 +225,18 @@ pass=$TEST_PASSWORD"
 test_start 'curl stub validates exactly one GET and two data-urlencode fields'
 assert_eq "$(wc -l <"$CURL_DECODED_LOG" | tr -d ' ')" 2
 test_start 'successful state is exact'
-assert_eq "$(cat "$STATE/last-update.env")" "LOCAL_V6=$LOCAL_V6
+assert_eq "$(cat "$STATE/last-provider-update.state")" "LOCAL_V6=$LOCAL_V6
 SUCCEEDED_AT=1700000000
 HTTP_CODE=200"
 test_start 'successful state mode is private'
-assert_eq "$(stat -c %a "$STATE/last-update.env")" 600
+assert_eq "$(stat -c %a "$STATE/last-provider-update.state")" 600
 test_start 'curl observes a private response directory and body file'
 assert_eq "$(cat "$CURL_TEMP_MODE_LOG")" '700|600'
 assert_secret_absent 'curl argv' "$CURL_ARGV_LOG"
 assert_secret_absent 'stdout' "$RUN_OUTPUT"
 assert_secret_absent 'stderr' "$RUN_ERROR"
 assert_secret_absent 'process log' "$UPDATE_PROCESS_LOG"
-assert_secret_absent 'successful state' "$STATE/last-update.env"
+assert_secret_absent 'successful state' "$STATE/last-provider-update.state"
 test_start 'provider response body is never logged'
 case $(cat "$RUN_OUTPUT" "$RUN_ERROR" "$UPDATE_PROCESS_LOG") in *'arbitrary provider success'*) fail 'body leaked' ;; *) pass ;; esac
 test_start 'logs contain only the redacted upper /64 endpoint'
@@ -245,14 +245,14 @@ test_start 'logs do not contain the complete endpoint'
 case $(cat "$RUN_ERROR") in *"$LOCAL_V6"*) fail 'full endpoint leaked' ;; *) pass ;; esac
 
 new_case explicit-legacy-http
-cat >"$CONFIG/update.env" <<EOF
+cat >"$CONFIG/provider-update.conf" <<EOF
 UPDATE_URL=http://legacy.example.invalid/update
 UPDATE_USERNAME=$TEST_USERNAME
 UPDATE_PASSWORD=$TEST_PASSWORD
 ALLOW_INSECURE_UPDATE_HTTP=yes
 INSECURE_UPDATE_HTTP_HOST=legacy.example.invalid
 EOF
-chmod 600 "$CONFIG/update.env"
+chmod 600 "$CONFIG/provider-update.conf"
 queue_response 0 200 'OK'
 run_update --force
 assert_run_success 'explicit exact-host legacy HTTP opt-in remains available'
@@ -268,14 +268,14 @@ assert_secret_absent 'legacy HTTP logs' "$RUN_ERROR"
 
 test_start 'parsed credential variables are not exported to child processes'
 if (
-  v6_load_update_config "$CONFIG/update.env" || exit 1
+  v6_load_update_config "$CONFIG/provider-update.conf" || exit 1
   env | grep '^V6_UPDATE_\(URL\|USERNAME\|PASSWORD\)=' >/dev/null
 ); then fail 'credential variable was exported'; else pass; fi
 
 test_start 'update config owner must match the narrow nonroot seam owner'
 if (
   id() { printf '%s\n' 1234; }
-  v6_load_update_config "$CONFIG/update.env"
+  v6_load_update_config "$CONFIG/provider-update.conf"
 ); then fail 'unexpected owner was accepted'; else pass; fi
 
 # Each failed attempt sleeps once before the next, then the third success commits state.
@@ -297,31 +297,31 @@ case $(cat "$RUN_ERROR") in *detail*) fail 'response detail leaked' ;; *) pass ;
 
 # Exhaustion must retain the prior success bytes exactly.
 new_case exhausted
-printf '%s\n' 'LOCAL_V6=2001:0db8:1234:0030:0000:0000:0000:0001' 'SUCCEEDED_AT=1699990000' 'HTTP_CODE=200' >"$STATE/last-update.env"
-chmod 600 "$STATE/last-update.env"
-cp "$STATE/last-update.env" "$CASE/prior-state"
+printf '%s\n' 'LOCAL_V6=2001:0db8:1234:0030:0000:0000:0000:0001' 'SUCCEEDED_AT=1699990000' 'HTTP_CODE=200' >"$STATE/last-provider-update.state"
+chmod 600 "$STATE/last-provider-update.state"
+cp "$STATE/last-provider-update.state" "$CASE/prior-state"
 queue_response 7 000 'one'
 queue_response 0 503 'two'
 queue_response 0 200 ' FAIL: rejected '
 run_update --force
 assert_run_status 'three failed attempts return notification failure' 1
 test_start 'failed notification preserves prior successful state byte-for-byte'
-cmp -s "$STATE/last-update.env" "$CASE/prior-state" && pass || fail 'prior state bytes changed'
+cmp -s "$STATE/last-provider-update.state" "$CASE/prior-state" && pass || fail 'prior state bytes changed'
 test_start 'three failures still sleep only between attempts'
 assert_eq "$(cat "$SLEEP_ARGV_LOG")" "10
 10"
 
 new_case state-write-failure
-printf '%s\n' 'LOCAL_V6=2001:0db8:1234:0030:0000:0000:0000:0001' 'SUCCEEDED_AT=1699990000' 'HTTP_CODE=200' >"$STATE/last-update.env"
-chmod 600 "$STATE/last-update.env"
-cp "$STATE/last-update.env" "$CASE/prior-state"
+printf '%s\n' 'LOCAL_V6=2001:0db8:1234:0030:0000:0000:0000:0001' 'SUCCEEDED_AT=1699990000' 'HTTP_CODE=200' >"$STATE/last-provider-update.state"
+chmod 600 "$STATE/last-provider-update.state"
+cp "$STATE/last-provider-update.state" "$CASE/prior-state"
 CURL_PREPOSITION_ATOMIC_TMP=1
 export CURL_PREPOSITION_ATOMIC_TMP
 queue_response 0 200 'OK'
 run_update --force
 assert_run_status 'checked atomic state-write failure returns notification failure' 1
 test_start 'atomic state-write failure preserves prior success byte-for-byte'
-cmp -s "$STATE/last-update.env" "$CASE/prior-state" && pass || fail 'prior state bytes changed'
+cmp -s "$STATE/last-provider-update.state" "$CASE/prior-state" && pass || fail 'prior state bytes changed'
 
 # Provider-negative tokens are case-insensitive and require a delimiter.
 for negative_body in 'NG' ' ng rejected' 'ERROR: denied' ' Fail failure'; do
@@ -346,16 +346,16 @@ assert_run_success 'non-delimited failure prefix is accepted'
 
 # Interval gating depends on both endpoint identity and safe elapsed time.
 new_case interval-skip
-printf '%s\n' "LOCAL_V6=$LOCAL_V6" 'SUCCEEDED_AT=1699999500' 'HTTP_CODE=200' >"$STATE/last-update.env"
-chmod 600 "$STATE/last-update.env"
+printf '%s\n' "LOCAL_V6=$LOCAL_V6" 'SUCCEEDED_AT=1699999500' 'HTTP_CODE=200' >"$STATE/last-provider-update.state"
+chmod 600 "$STATE/last-provider-update.state"
 run_update
 assert_run_success 'unchanged endpoint inside interval skips'
 test_start 'inside-interval skip performs no request'
 assert_eq "$(curl_count)" 0
 
 new_case interval-boundary
-printf '%s\n' "LOCAL_V6=$LOCAL_V6" 'SUCCEEDED_AT=1699999400' 'HTTP_CODE=200' >"$STATE/last-update.env"
-chmod 600 "$STATE/last-update.env"
+printf '%s\n' "LOCAL_V6=$LOCAL_V6" 'SUCCEEDED_AT=1699999400' 'HTTP_CODE=200' >"$STATE/last-provider-update.state"
+chmod 600 "$STATE/last-provider-update.state"
 queue_response 0 200 'OK'
 run_update
 assert_run_success 'elapsed time exactly equal to interval sends'
@@ -365,19 +365,19 @@ assert_eq "$(curl_count)" 1
 new_case interval-near-decimal-limit
 V6PLUS_NOW=9999999999
 export V6PLUS_NOW
-printf '%s\n' "LOCAL_V6=$LOCAL_V6" 'SUCCEEDED_AT=9999999399' 'HTTP_CODE=200' >"$STATE/last-update.env"
-chmod 600 "$STATE/last-update.env"
+printf '%s\n' "LOCAL_V6=$LOCAL_V6" 'SUCCEEDED_AT=9999999399' 'HTTP_CODE=200' >"$STATE/last-provider-update.state"
+chmod 600 "$STATE/last-provider-update.state"
 queue_response 0 200 'OK'
 run_update
 assert_run_success 'ten-digit timestamps send safely at the exact interval boundary'
 test_start 'ten-digit interval boundary performs one request'
 assert_eq "$(curl_count)" 1
 test_start 'ten-digit timestamp is committed exactly'
-assert_contains "$(cat "$STATE/last-update.env")" 'SUCCEEDED_AT=9999999999'
+assert_contains "$(cat "$STATE/last-provider-update.state")" 'SUCCEEDED_AT=9999999999'
 
 new_case changed-endpoint
-printf '%s\n' 'LOCAL_V6=2001:0db8:1234:0030:0000:0000:0000:0001' 'SUCCEEDED_AT=1699999999' 'HTTP_CODE=200' >"$STATE/last-update.env"
-chmod 600 "$STATE/last-update.env"
+printf '%s\n' 'LOCAL_V6=2001:0db8:1234:0030:0000:0000:0000:0001' 'SUCCEEDED_AT=1699999999' 'HTTP_CODE=200' >"$STATE/last-provider-update.state"
+chmod 600 "$STATE/last-provider-update.state"
 queue_response 0 200 'OK'
 run_update
 assert_run_success 'changed endpoint sends immediately'
@@ -399,11 +399,11 @@ assert_eq "$(curl_count)" 1
 for bad_state in malformed future overflow; do
   new_case state-$bad_state
   case $bad_state in
-    malformed) printf '%s\n' "LOCAL_V6=$LOCAL_V6" 'SUCCEEDED_AT=nope' 'HTTP_CODE=200' >"$STATE/last-update.env" ;;
-    future) printf '%s\n' "LOCAL_V6=$LOCAL_V6" 'SUCCEEDED_AT=1700000001' 'HTTP_CODE=200' >"$STATE/last-update.env" ;;
-    overflow) printf '%s\n' "LOCAL_V6=$LOCAL_V6" 'SUCCEEDED_AT=999999999999999999999999999' 'HTTP_CODE=200' >"$STATE/last-update.env" ;;
+    malformed) printf '%s\n' "LOCAL_V6=$LOCAL_V6" 'SUCCEEDED_AT=nope' 'HTTP_CODE=200' >"$STATE/last-provider-update.state" ;;
+    future) printf '%s\n' "LOCAL_V6=$LOCAL_V6" 'SUCCEEDED_AT=1700000001' 'HTTP_CODE=200' >"$STATE/last-provider-update.state" ;;
+    overflow) printf '%s\n' "LOCAL_V6=$LOCAL_V6" 'SUCCEEDED_AT=999999999999999999999999999' 'HTTP_CODE=200' >"$STATE/last-provider-update.state" ;;
   esac
-  chmod 600 "$STATE/last-update.env"
+  chmod 600 "$STATE/last-provider-update.state"
   run_update
   assert_run_status "$bad_state prior state fails safely" 1
   test_start "$bad_state prior state causes no request"
@@ -416,8 +416,8 @@ for noncanonical_state in leading-zero signed; do
     leading-zero) prior_timestamp=0169999500 ;;
     signed) prior_timestamp=+169999500 ;;
   esac
-  printf '%s\n' "LOCAL_V6=$LOCAL_V6" "SUCCEEDED_AT=$prior_timestamp" 'HTTP_CODE=200' >"$STATE/last-update.env"
-  chmod 600 "$STATE/last-update.env"
+  printf '%s\n' "LOCAL_V6=$LOCAL_V6" "SUCCEEDED_AT=$prior_timestamp" 'HTTP_CODE=200' >"$STATE/last-provider-update.state"
+  chmod 600 "$STATE/last-provider-update.state"
   run_update
   assert_run_status "$noncanonical_state prior timestamp fails safely" 1
   test_start "$noncanonical_state prior timestamp has stable diagnostic"
@@ -449,56 +449,56 @@ done
 for force_state in corrupt future; do
   new_case force-$force_state-success
   case $force_state in
-    corrupt) printf '%s\n' 'not-an-assignment with opaque recovery bytes' >"$STATE/last-update.env" ;;
-    future) printf '%s\n' "LOCAL_V6=$LOCAL_V6" 'SUCCEEDED_AT=1700000001' 'HTTP_CODE=200' >"$STATE/last-update.env" ;;
+    corrupt) printf '%s\n' 'not-an-assignment with opaque recovery bytes' >"$STATE/last-provider-update.state" ;;
+    future) printf '%s\n' "LOCAL_V6=$LOCAL_V6" 'SUCCEEDED_AT=1700000001' 'HTTP_CODE=200' >"$STATE/last-provider-update.state" ;;
   esac
-  chmod 600 "$STATE/last-update.env"
+  chmod 600 "$STATE/last-provider-update.state"
   queue_response 0 200 'OK'
   run_update --force
   assert_run_success "force replaces private $force_state state after verified success"
   test_start "force $force_state success writes exact state"
-  assert_eq "$(cat "$STATE/last-update.env")" "LOCAL_V6=$LOCAL_V6
+  assert_eq "$(cat "$STATE/last-provider-update.state")" "LOCAL_V6=$LOCAL_V6
 SUCCEEDED_AT=1700000000
 HTTP_CODE=200"
 
   new_case force-$force_state-failure
   case $force_state in
-    corrupt) printf '%s\n' 'not-an-assignment with opaque recovery bytes' >"$STATE/last-update.env" ;;
-    future) printf '%s\n' "LOCAL_V6=$LOCAL_V6" 'SUCCEEDED_AT=1700000001' 'HTTP_CODE=200' >"$STATE/last-update.env" ;;
+    corrupt) printf '%s\n' 'not-an-assignment with opaque recovery bytes' >"$STATE/last-provider-update.state" ;;
+    future) printf '%s\n' "LOCAL_V6=$LOCAL_V6" 'SUCCEEDED_AT=1700000001' 'HTTP_CODE=200' >"$STATE/last-provider-update.state" ;;
   esac
-  chmod 600 "$STATE/last-update.env"
-  cp "$STATE/last-update.env" "$CASE/prior-state"
+  chmod 600 "$STATE/last-provider-update.state"
+  cp "$STATE/last-provider-update.state" "$CASE/prior-state"
   queue_response 7 000 'one'
   queue_response 0 503 'two'
   queue_response 0 200 'FAIL: denied'
   run_update --force
   assert_run_status "force failure returns nonzero with private $force_state state" 1
   test_start "force failure preserves private $force_state state byte-for-byte"
-  cmp -s "$STATE/last-update.env" "$CASE/prior-state" && pass || fail 'prior state bytes changed'
+  cmp -s "$STATE/last-provider-update.state" "$CASE/prior-state" && pass || fail 'prior state bytes changed'
 done
 
 for unsafe_state in mode duplicate extra missing bad-code; do
   new_case state-$unsafe_state
   case $unsafe_state in
     mode)
-      printf '%s\n' "LOCAL_V6=$LOCAL_V6" 'SUCCEEDED_AT=1699999500' 'HTTP_CODE=200' >"$STATE/last-update.env"
-      chmod 640 "$STATE/last-update.env"
+      printf '%s\n' "LOCAL_V6=$LOCAL_V6" 'SUCCEEDED_AT=1699999500' 'HTTP_CODE=200' >"$STATE/last-provider-update.state"
+      chmod 640 "$STATE/last-provider-update.state"
       ;;
     duplicate)
-      printf '%s\n' "LOCAL_V6=$LOCAL_V6" 'SUCCEEDED_AT=1699999500' 'HTTP_CODE=200' 'HTTP_CODE=200' >"$STATE/last-update.env"
-      chmod 600 "$STATE/last-update.env"
+      printf '%s\n' "LOCAL_V6=$LOCAL_V6" 'SUCCEEDED_AT=1699999500' 'HTTP_CODE=200' 'HTTP_CODE=200' >"$STATE/last-provider-update.state"
+      chmod 600 "$STATE/last-provider-update.state"
       ;;
     extra)
-      printf '%s\n' "LOCAL_V6=$LOCAL_V6" 'SUCCEEDED_AT=1699999500' 'HTTP_CODE=200' 'EXTRA=value' >"$STATE/last-update.env"
-      chmod 600 "$STATE/last-update.env"
+      printf '%s\n' "LOCAL_V6=$LOCAL_V6" 'SUCCEEDED_AT=1699999500' 'HTTP_CODE=200' 'EXTRA=value' >"$STATE/last-provider-update.state"
+      chmod 600 "$STATE/last-provider-update.state"
       ;;
     missing)
-      printf '%s\n' "LOCAL_V6=$LOCAL_V6" 'SUCCEEDED_AT=1699999500' >"$STATE/last-update.env"
-      chmod 600 "$STATE/last-update.env"
+      printf '%s\n' "LOCAL_V6=$LOCAL_V6" 'SUCCEEDED_AT=1699999500' >"$STATE/last-provider-update.state"
+      chmod 600 "$STATE/last-provider-update.state"
       ;;
     bad-code)
-      printf '%s\n' "LOCAL_V6=$LOCAL_V6" 'SUCCEEDED_AT=1699999500' 'HTTP_CODE=201' >"$STATE/last-update.env"
-      chmod 600 "$STATE/last-update.env"
+      printf '%s\n' "LOCAL_V6=$LOCAL_V6" 'SUCCEEDED_AT=1699999500' 'HTTP_CODE=201' >"$STATE/last-provider-update.state"
+      chmod 600 "$STATE/last-provider-update.state"
       ;;
   esac
   run_update
@@ -509,15 +509,15 @@ done
 
 # Update configuration metadata and all credential-bearing values fail closed.
 new_case update-mode
-chmod 640 "$CONFIG/update.env"
+chmod 640 "$CONFIG/provider-update.conf"
 run_update --force
 assert_run_status 'group-readable update config is rejected as configuration' 2
 test_start 'unsafe update-config mode is rejected before curl'
 assert_eq "$(curl_count)" 0
 
 new_case update-symlink
-mv "$CONFIG/update.env" "$CONFIG/update.real"
-ln -s "$CONFIG/update.real" "$CONFIG/update.env"
+mv "$CONFIG/provider-update.conf" "$CONFIG/update.real"
+ln -s "$CONFIG/update.real" "$CONFIG/provider-update.conf"
 run_update --force
 assert_run_status 'symlink update config is rejected as configuration' 2
 test_start 'symlink update config is rejected before curl'
@@ -601,9 +601,9 @@ test_start 'unexpected update-config parent owner is rejected before curl'
 assert_eq "$(curl_count)" 0
 
 new_case main-seen-key-inspection-error
-printf '%s\n' sentinel >"$STATE/last-update.env"
-chmod 600 "$STATE/last-update.env"
-cp "$STATE/last-update.env" "$CASE/prior-state"
+printf '%s\n' sentinel >"$STATE/last-provider-update.state"
+chmod 600 "$STATE/last-provider-update.state"
+cp "$STATE/last-provider-update.state" "$CASE/prior-state"
 STUB_SEEN_GREP_FAIL_AT=WAN_IF
 export STUB_SEEN_GREP_FAIL_AT
 run_update --force
@@ -611,13 +611,13 @@ assert_run_status 'main duplicate-key inspection error is configuration failure'
 test_start 'main duplicate-key inspection error performs no curl'
 assert_eq "$(curl_count)" 0
 test_start 'main duplicate-key inspection error preserves runtime state'
-cmp -s "$STATE/last-update.env" "$CASE/prior-state" && pass || fail 'state changed'
+cmp -s "$STATE/last-provider-update.state" "$CASE/prior-state" && pass || fail 'state changed'
 assert_secret_absent 'main duplicate-key inspection error process log' "$UPDATE_PROCESS_LOG"
 
 new_case update-seen-key-inspection-error
-printf '%s\n' sentinel >"$STATE/last-update.env"
-chmod 600 "$STATE/last-update.env"
-cp "$STATE/last-update.env" "$CASE/prior-state"
+printf '%s\n' sentinel >"$STATE/last-provider-update.state"
+chmod 600 "$STATE/last-provider-update.state"
+cp "$STATE/last-provider-update.state" "$CASE/prior-state"
 STUB_SEEN_GREP_FAIL_AT=UPDATE_PASSWORD
 export STUB_SEEN_GREP_FAIL_AT
 run_update --force
@@ -625,12 +625,12 @@ assert_run_status 'update duplicate-key inspection error is configuration failur
 test_start 'update duplicate-key inspection error performs no curl'
 assert_eq "$(curl_count)" 0
 test_start 'update duplicate-key inspection error preserves runtime state'
-cmp -s "$STATE/last-update.env" "$CASE/prior-state" && pass || fail 'state changed'
+cmp -s "$STATE/last-provider-update.state" "$CASE/prior-state" && pass || fail 'state changed'
 assert_secret_absent 'update duplicate-key inspection error child environments' "$CHILD_ENV_LOG"
 
 if [ "$(id -u)" -eq 0 ]; then
   new_case update-owner
-  if chown 65534 "$CONFIG/update.env" 2>/dev/null; then
+  if chown 65534 "$CONFIG/provider-update.conf" 2>/dev/null; then
     run_update --force
     assert_run_status 'unexpected update config owner is rejected as configuration' 2
     test_start 'unexpected update config owner is rejected before curl'
@@ -641,15 +641,15 @@ fi
 for invalid_config in empty-url empty-user empty-pass bad-scheme carriage tab; do
   new_case config-$invalid_config
   case $invalid_config in
-    empty-url) printf '%s\n' 'UPDATE_URL=' "UPDATE_USERNAME=$TEST_USERNAME" "UPDATE_PASSWORD=$TEST_PASSWORD" >"$CONFIG/update.env" ;;
-    empty-user) printf '%s\n' 'UPDATE_URL=https://update.example.invalid/' 'UPDATE_USERNAME=' "UPDATE_PASSWORD=$TEST_PASSWORD" >"$CONFIG/update.env" ;;
-    empty-pass) printf '%s\n' 'UPDATE_URL=https://update.example.invalid/' "UPDATE_USERNAME=$TEST_USERNAME" 'UPDATE_PASSWORD=' >"$CONFIG/update.env" ;;
-    bad-scheme) printf '%s\n' 'UPDATE_URL=file:///tmp/provider' "UPDATE_USERNAME=$TEST_USERNAME" "UPDATE_PASSWORD=$TEST_PASSWORD" >"$CONFIG/update.env" ;;
-    carriage) printf 'UPDATE_URL=https://update.example.invalid/\r\nUPDATE_USERNAME=%s\nUPDATE_PASSWORD=%s\n' "$TEST_USERNAME" "$TEST_PASSWORD" >"$CONFIG/update.env" ;;
-    tab) printf 'UPDATE_URL=https://update.example.invalid/\nUPDATE_USERNAME=user\tname\nUPDATE_PASSWORD=%s\n' "$TEST_PASSWORD" >"$CONFIG/update.env" ;;
+    empty-url) printf '%s\n' 'UPDATE_URL=' "UPDATE_USERNAME=$TEST_USERNAME" "UPDATE_PASSWORD=$TEST_PASSWORD" >"$CONFIG/provider-update.conf" ;;
+    empty-user) printf '%s\n' 'UPDATE_URL=https://update.example.invalid/' 'UPDATE_USERNAME=' "UPDATE_PASSWORD=$TEST_PASSWORD" >"$CONFIG/provider-update.conf" ;;
+    empty-pass) printf '%s\n' 'UPDATE_URL=https://update.example.invalid/' "UPDATE_USERNAME=$TEST_USERNAME" 'UPDATE_PASSWORD=' >"$CONFIG/provider-update.conf" ;;
+    bad-scheme) printf '%s\n' 'UPDATE_URL=file:///tmp/provider' "UPDATE_USERNAME=$TEST_USERNAME" "UPDATE_PASSWORD=$TEST_PASSWORD" >"$CONFIG/provider-update.conf" ;;
+    carriage) printf 'UPDATE_URL=https://update.example.invalid/\r\nUPDATE_USERNAME=%s\nUPDATE_PASSWORD=%s\n' "$TEST_USERNAME" "$TEST_PASSWORD" >"$CONFIG/provider-update.conf" ;;
+    tab) printf 'UPDATE_URL=https://update.example.invalid/\nUPDATE_USERNAME=user\tname\nUPDATE_PASSWORD=%s\n' "$TEST_PASSWORD" >"$CONFIG/provider-update.conf" ;;
   esac
-  printf '%s\n' 'ALLOW_INSECURE_UPDATE_HTTP=no' 'INSECURE_UPDATE_HTTP_HOST=' >>"$CONFIG/update.env"
-  chmod 600 "$CONFIG/update.env"
+  printf '%s\n' 'ALLOW_INSECURE_UPDATE_HTTP=no' 'INSECURE_UPDATE_HTTP_HOST=' >>"$CONFIG/provider-update.conf"
+  chmod 600 "$CONFIG/provider-update.conf"
   run_update --force
   assert_run_status "$invalid_config update config is rejected" 2
   test_start "$invalid_config update config causes no request"
@@ -686,9 +686,9 @@ set -e
 if [ "$curl_escape_status" -eq 2 ] && [ ! -s "$CASE/sed-failure-output" ]; then pass; else fail "status=$curl_escape_status output=$(cat "$CASE/sed-failure-output")"; fi
 
 new_case grep-failure
-printf '%s\n' sentinel >"$STATE/last-update.env"
-chmod 600 "$STATE/last-update.env"
-cp "$STATE/last-update.env" "$CASE/prior-state"
+printf '%s\n' sentinel >"$STATE/last-provider-update.state"
+chmod 600 "$STATE/last-provider-update.state"
+cp "$STATE/last-provider-update.state" "$CASE/prior-state"
 STUB_CONTROL_GREP_FAIL=1
 export STUB_CONTROL_GREP_FAIL
 run_update --force
@@ -696,12 +696,12 @@ assert_run_status 'control grep failure is a configuration error' 2
 test_start 'control grep failure performs no curl'
 assert_eq "$(curl_count)" 0
 test_start 'control grep failure preserves state byte-for-byte'
-cmp -s "$STATE/last-update.env" "$CASE/prior-state" && pass || fail 'state changed'
+cmp -s "$STATE/last-provider-update.state" "$CASE/prior-state" && pass || fail 'state changed'
 
 new_case sed-failure
-printf '%s\n' sentinel >"$STATE/last-update.env"
-chmod 600 "$STATE/last-update.env"
-cp "$STATE/last-update.env" "$CASE/prior-state"
+printf '%s\n' sentinel >"$STATE/last-provider-update.state"
+chmod 600 "$STATE/last-provider-update.state"
+cp "$STATE/last-provider-update.state" "$CASE/prior-state"
 STUB_CURL_SED_FAIL=1
 export STUB_CURL_SED_FAIL
 run_update --force
@@ -709,7 +709,7 @@ assert_run_status 'curl escaping sed failure is a configuration error' 2
 test_start 'curl escaping sed failure performs no curl'
 assert_eq "$(curl_count)" 0
 test_start 'curl escaping sed failure preserves state byte-for-byte'
-cmp -s "$STATE/last-update.env" "$CASE/prior-state" && pass || fail 'state changed'
+cmp -s "$STATE/last-provider-update.state" "$CASE/prior-state" && pass || fail 'state changed'
 
 new_case scratch-environment-secrecy
 line=$TEST_USERNAME
@@ -787,7 +787,7 @@ test_start 'curl still binds the computed exact endpoint after export cleanup'
 assert_contains "$(nul_args "$CURL_ARGV_LOG")" "--interface
 2001:0db8:1234:0030:00cb:0071:2a00:0000"
 test_start 'private state still records the computed exact endpoint after export cleanup'
-assert_contains "$(cat "$STATE/last-update.env")" 'LOCAL_V6=2001:0db8:1234:0030:00cb:0071:2a00:0000'
+assert_contains "$(cat "$STATE/last-provider-update.state")" 'LOCAL_V6=2001:0db8:1234:0030:00cb:0071:2a00:0000'
 unset SOURCE_V6 LOCAL_V6 expanded_endpoint REDACTED_ENDPOINT NOW
 unset source_full iid_full iid output source_prefix iid_suffix v6_route_output
 unset v6_compose_iid v6_compose_source_full v6_compose_iid_full
@@ -852,8 +852,8 @@ test_start 'valid compressed /64 followed by exact /128 performs one request'
 assert_eq "$(curl_count)" 1
 
 new_case prior-state-owner
-printf '%s\n' "LOCAL_V6=$LOCAL_V6" 'SUCCEEDED_AT=1699999500' 'HTTP_CODE=200' >"$STATE/last-update.env"
-chmod 600 "$STATE/last-update.env"
+printf '%s\n' "LOCAL_V6=$LOCAL_V6" 'SUCCEEDED_AT=1699999500' 'HTTP_CODE=200' >"$STATE/last-provider-update.state"
+chmod 600 "$STATE/last-provider-update.state"
 STUB_STAT_FOREIGN_STATE=1
 export STUB_STAT_FOREIGN_STATE
 run_update --force
@@ -915,7 +915,7 @@ assert_eq "$(curl_count)" 0
 
 new_case state-symlink
 printf '%s\n' 'outside' >"$CASE/outside-state"
-ln -s "$CASE/outside-state" "$STATE/last-update.env"
+ln -s "$CASE/outside-state" "$STATE/last-provider-update.state"
 run_update
 assert_run_status 'symlink prior state is rejected' 1
 test_start 'symlink prior state target is unchanged'
