@@ -9,6 +9,7 @@ for path in README.md LICENSE NOTICE.md SECURITY.md CONTRIBUTING.md .gitignore \
   docs/troubleshooting.md docs/validation.md \
   config/gateway.conf.example config/routed-networks.conf.example config/provider-update.conf.example \
   scripts/install.sh \
+  scripts/unifi-jpix-tunnel-repair-preflight.sh \
   scripts/unifi-jpix-tunnel-repair-apply.sh \
   scripts/unifi-jpix-tunnel-repair-diag.sh \
   scripts/unifi-jpix-tunnel-repair-lib.sh \

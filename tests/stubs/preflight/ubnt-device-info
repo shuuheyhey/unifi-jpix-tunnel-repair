@@ -1,0 +1,6 @@
+#!/bin/sh
+printf 'ubnt-device-info %s\n' "$*" >>"$STUB_LOG"
+case ${PREFLIGHT_STUB_MODE:-ready} in
+  unsupported-os) printf '4.1.13\n' ;;
+  *) printf '5.0.9\nfixture-password\n' ;;
+esac

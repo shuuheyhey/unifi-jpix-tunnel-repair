@@ -1,0 +1,23 @@
+#!/bin/sh
+printf 'ip %s\n' "$*" >>"$STUB_LOG"
+
+case ${PREFLIGHT_STUB_MODE:-ready}:$* in
+  missing-ipv6:*) exit 0 ;;
+  *:'-6 route show default')
+    printf 'default via fe80::1 dev eth9 proto ra metric 1024\n'
+    ;;
+  *:'-6 addr show scope global')
+    printf '9: eth9: <UP> mtu 1500\n    inet6 2001:db8:1234:30::1/64 scope global dynamic\n       valid_lft 3600sec preferred_lft 1800sec\n    link/ether aa:bb:cc:dd:ee:ff\n'
+    ;;
+  *:'-6 route show table all proto dhcp')
+    printf '2001:db8:1234:100::/56 dev br0 proto dhcp metric 1024\n'
+    ;;
+  *:'-6 route show table all proto ra')
+    printf 'default via fe80::1 dev eth9 proto ra metric 1024\n'
+    ;;
+  *:'-d -6 tunnel show')
+    printf 'ip6tnl0: any/ipv6 remote any local any encaplimit 4 hoplimit 64 tclass 0x00 flowlabel 0x00000 (flowinfo 0x00000000)\n'
+    printf 'ip6tnl-secret: ip/ipv6 remote 2001:db8:ffff::1 local 2001:db8:1234:30::1 encaplimit 4 hoplimit 64 tclass 0x00 flowlabel 0x00000 (flowinfo 0x00000000)\n'
+    ;;
+  *) exit 1 ;;
+esac

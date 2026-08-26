@@ -1,0 +1,8 @@
+#!/bin/sh
+printf 'ip6tables %s\n' "$*" >>"$STUB_LOG"
+case $* in
+  '-S UBIOS_INPUT_USER_HOOK')
+    printf '%s\n' '-N UBIOS_INPUT_USER_HOOK'
+    ;;
+  *) exit 1 ;;
+esac

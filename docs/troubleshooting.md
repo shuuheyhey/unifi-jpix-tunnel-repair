@@ -1,5 +1,9 @@
 # Troubleshooting
 
+## `RESULT=needs-attention` from preflight
+
+preflightの出力は共有安全です。`missing`または`absent`の項目を確認し、特にroot実行、必須command、UniFi OS互換性、native IPv6、DHCPv6-PD、IPIP6 tunnel候補、UniFi user chainの順に調査します。実addressやinterface名が必要な調査へ進む場合は、公開場所ではなく実機上で完全診断を扱ってください。
+
 ## `invalid ... configuration`
 
 値だけでなく、directoryのcanonical path、symlink、所有者、mode `0600` を確認します。設定をshellでsourceして調査しないでください。

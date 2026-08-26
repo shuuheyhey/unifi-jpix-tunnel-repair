@@ -1,0 +1,3 @@
+#!/bin/sh
+printf 'dpkg-query %s\n' "$*" >>"$STUB_LOG"
+printf '9.4.17-fixture-api-key\n'

@@ -1,0 +1,8 @@
+#!/bin/sh
+printf 'iptables %s\n' "$*" >>"$STUB_LOG"
+case $* in
+  '-t nat -S UBIOS_POSTROUTING_USER_HOOK')
+    printf '%s\n' '-N UBIOS_POSTROUTING_USER_HOOK'
+    ;;
+  *) exit 1 ;;
+esac
