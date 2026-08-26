@@ -83,14 +83,26 @@ sudo /data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-apply.sh st
 
 `status`が成功し、[Validation](validation.md)の対象LAN・対象外LAN確認が終わるまで自動化へ進まないでください。
 
-## 7. 自動化gateを閉じたままにする
+## 7. 自動化を明示的に有効化する
 
-Issue #2のreview時点では、共有UniFiトンネルの再起動、reprovision、prefix変更、独立トンネル比較が未完了です。手動適用とrollbackが成功してもautomationを有効化しません。
+インストーラーはautomationを有効化しません。手動apply、対象LAN通信、provider通知、`off`、rollback、再applyを同じ環境で完了し、別管理経路と復旧手順を維持できる場合だけ、[Validation](validation.md#7-rollback再applyautomation-gate)に沿って有効化します。
 
 ```sh
-sudo systemctl disable unifi-jpix-tunnel-repair-trigger.service unifi-jpix-tunnel-repair-watch.service unifi-jpix-tunnel-repair-update.timer
-sudo systemctl stop unifi-jpix-tunnel-repair-trigger.service unifi-jpix-tunnel-repair-watch.service unifi-jpix-tunnel-repair-update.timer unifi-jpix-tunnel-repair-update.service
+sudo systemctl enable --now \
+  unifi-jpix-tunnel-repair-trigger.service \
+  unifi-jpix-tunnel-repair-watch.service \
+  unifi-jpix-tunnel-repair-update.timer
+sudo systemctl is-enabled \
+  unifi-jpix-tunnel-repair-trigger.service \
+  unifi-jpix-tunnel-repair-watch.service \
+  unifi-jpix-tunnel-repair-update.timer
+sudo systemctl is-active \
+  unifi-jpix-tunnel-repair-trigger.service \
+  unifi-jpix-tunnel-repair-watch.service \
+  unifi-jpix-tunnel-repair-update.timer
 ```
+
+有効化だけで完了扱いにせず、実際にUDMを再起動し、Boot ID変更、WAN readiness後のapply、3 unitのactive状態、`status`、duplicate不在、対象LAN通信、timer tickを確認します。2026-08-26の検証実機ではこの再起動gateを通過していますが、新しい環境では同じ検証を省略できません。
 
 ## 8. 更新する
 
@@ -104,4 +116,4 @@ sudo /data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-diag.sh
 sudo /data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-apply.sh --dry-run apply
 ```
 
-UniFi OS upgrade後は互換性を推測せず、preflightから再検証してください。
+更新前にautomationがenabledだった場合も、診断とdry-runが成功するまで再startしません。成功後に3 unitをstartし、`status`と通信を再確認します。UniFi OS upgrade後は互換性を推測せず、preflightから再検証してください。

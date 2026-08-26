@@ -83,7 +83,7 @@ JPIXは固定IPサービスを、IPv6 IPoEとIPv6網上のIPv4接続を組み合
 | 固定IPv4 | 利用者が外部通信に使う専有IPv4 | `STATIC_V4` |
 | BR IPv6 | IPIPの事業者側remote endpoint | `BR_V6` |
 | IID | CPE側local endpointの下位64 bit | `IID` |
-| IPv6 prefix | RAまたはDHCPv6-PDで回線側から取得 | configへ固定せず、BRへのroute sourceから観測 |
+| IPv6 prefix | RAまたはDHCPv6-PDで回線側から取得 | configへ固定せず、明示したdelegated-prefix LAN bridgeのkernel `/64`から観測 |
 | 更新URL | 現在のCPE側IPv6 endpointの通知先 | `UPDATE_URL` |
 | 更新認証情報 | 通知要求の認証 | `UPDATE_USERNAME`、`UPDATE_PASSWORD` |
 
@@ -107,9 +107,9 @@ JPIXの公開ガイドは一般シーケンスとしてRA/DHCPv6-PDを示し、�
 CPE側local IPv6 endpoint = 現在有効なIPv6 /64 prefix + 契約IID
 ```
 
-このprojectは、設定ファイルにprefixを保存しません。BRへのIPv6 routeを問い合わせ、そのrouteが選ぶsource addressの上位64 bitを現在のprefixとして使い、契約IIDと合成します。その後、合成結果をWANへ`/128`で設定し、UniFi管理トンネルのlocal endpointに使用します。
+このprojectは、設定ファイルにprefixを保存しません。`ENDPOINT_IF`として明示したLAN bridgeについて、一意なglobal `proto kernel` `/64` routeを現在のendpoint prefixとして使い、契約IIDと合成します。WAN、BR route source、非bridge interfaceのprefixはendpoint生成へ流用しません。合成結果をBR routeが選ぶWANへ`/128`で設定し、UniFi管理トンネルのlocal endpointに使用します。
 
-この方式では、BRへのrouteが意図したWANを選ぶこと、source addressが一意かつglobalであること、IIDが契約値と一致することが重要です。どれかを推測すると、native IPv6は動いていても固定IPv4の戻り通信が失敗します。
+この方式では、`ENDPOINT_IF`が実際にdelegated prefixを使うLAN bridgeであること、global kernel `/64`がexact interface上で一意であること、BR routeが意図したWANを選ぶこと、IIDが契約値と一致することが重要です。0件または複数件なら推測せずmutation前に停止します。
 
 ### 4.5 packetの往復
 
@@ -289,7 +289,7 @@ HB46PP仕様はHTTP、certificate検証なしHTTPS、自己署名certificate、p
 | JPIX固定IPで必要な処理 | projectの処理 | 境界・注意 |
 | --- | --- | --- |
 | IPv6 IPoEとprefix取得 | UniFi設定を変更せず観測 | UniFi側で事前に成立している必要がある |
-| local endpoint生成 | BR route sourceの上位64 bit + `IID` | DHCPv6-PD構成だけを対象 |
+| local endpoint生成 | `ENDPOINT_IF`の一意なglobal kernel `/64` + `IID` | DHCPv6-PD構成だけを対象。WAN route sourceは使わない |
 | IPIP tunnel | UniFi管理tunnelを`ipip6`、local、remoteへ収束 | tunnelを新規作成しない |
 | fixed IPv4 | tunnelへ`STATIC_V4/32` | 1 IPだけ |
 | IPv4 route | 対象LANを専用tableのdefault routeへpolicy routing | 対象外LANは管理しない |
@@ -297,7 +297,7 @@ HB46PP仕様はHTTP、certificate検証なしHTTPS、自己署名certificate、p
 | MTU/MSS | tunnel MTUと3方向のTCP MSS rule | 実機PMTU確認が必要 |
 | outer IPv6 firewall | BRからlocalへのProtocol 4を検査・任意管理 | `auto`は未確認でもruleを追加しない |
 | endpoint通知 | prefix変化後とtimerで更新URLへ通知 | HB46PPではない |
-| drift/reboot recovery | trigger、watch、systemdで再適用 | 実機検証未完了 |
+| drift/reboot recovery | trigger、watch、systemdで再適用 | 再起動と短時間soakを実機確認済み。reprovisionは未確認 |
 
 ## 8. 実機で確認済みのことと未確認のこと
 
@@ -308,13 +308,11 @@ HB46PP仕様はHTTP、certificate検証なしHTTPS、自己署名certificate、p
 - UniFi管理IPIP6 tunnel候補とUniFi user chain
 - 外部接続判定`5999`、固定IPv4/IPv6、フレッツ西日本、v6プラス用試験の成功
 
-この結果は、現在の回線と既存構成がJPIX固定IPとして通信できている証拠です。次はまだ別々に検証する必要があります。
+同じ実機では、project実configのdry-run、手動apply、対象LAN通信、provider通知、timed recovery、`off`、rollback、再applyも確認済みです。さらに新automationをenableし、UDM再起動後のWAN readiness、boot apply、trigger/watch/update timerのactive化、対象LAN通信復帰、2分間・9回の`status`エラー0、provider timer初回tick成功を確認しました。
 
-- project実configでのdry-runと手動apply
-- apply前後での対象LAN・対象外LANの通信差分
-- IPv6 prefix変更時のendpoint再構成と通知
-- UDM再起動後の順序、watch/triggerの収束、二重ruleがないこと
-- `off`とrollbackによる元状態への復帰
+provider更新先は、公開資料で正式なHTTPS URLを確認できず、実機と対象LANからのHTTPS接続も成立しなかったため、公開資料と契約値に従うHTTP URLを継続しています。推測したHTTPS URLへは変更していません。
+
+残る実機検証は[Validation](validation.md#現在の実機検証範囲)を正本とし、Issue #3〜#7で追跡します。主な未完了項目は、UniFi reprovisionとNetwork restart、prefix変更追従、standalone tunnel比較、PMTUD・UDP・VPN、対象外LAN実端末と変更後browser判定です。
 
 ## 9. JPNE/JPIX IPv4/IPv6接続判定ページ
 

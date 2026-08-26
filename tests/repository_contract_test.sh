@@ -37,7 +37,8 @@ assert_contains "$(cat "$ROOT/config/gateway.conf.example" 2>/dev/null || true)"
 
 runbook=$(cat "$ROOT/docs/udm-pro-setup.md" 2>/dev/null || true)
 for required_runbook_text in 'git archive' 'sha256sum' 'scp' '--discover' 'systemd-run' \
-  'unifi-jpix-tunnel-repair-update.sh --force' 'automationを有効化しない' '旧実装'; do
+  'unifi-jpix-tunnel-repair-update.sh --force' 'automationを有効化して再起動検証する' \
+  'systemctl enable --now' '旧実装'; do
   test_start "UDM runbook contains <$required_runbook_text>"
   assert_contains "$runbook" "$required_runbook_text"
 done

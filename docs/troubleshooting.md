@@ -73,13 +73,14 @@ journalは共有せず実機内で確認します。`phase=`、`drift=`、rollba
 
 ### apply後にtag付きSNAT ruleだけが消える
 
-UniFiの再書き戻しや新旧serviceの競合が疑われます。新旧automationを停止し、`status`でdriftを確認してから手動applyを1回だけ実行し、時間を置いて再度`status`を確認します。再発時は自動化せず、reprovisionと共有トンネル所有権の検証課題として扱います。
+UniFiの再書き戻しや新旧serviceの競合が疑われます。調査中は新旧automationを停止し、`status`でdriftを確認してから手動applyを1回だけ実行し、時間を置いて再度`status`を確認します。再発時はautomationを再開せず、[Issue #3](https://github.com/shuuheyhey/unifi-jpix-tunnel-repair/issues/3)のreprovision・共有所有権検証として扱います。
 
 ## Provider更新が失敗する
 
-- HTTPS URL、IPv6 source endpoint、credential、provider availabilityを確認する
+- 設定されたURL scheme、IPv6 source endpoint、credential、provider availabilityを確認する
 - `UPDATE_INTERVAL_SECONDS=0`では定期通知が無効になる
 - HTTP-only endpointでは明示opt-inとhost完全一致が必要
+- providerが明示していないHTTPS URLへ推測で切り替えない
 - provider response bodyやcredentialをlogへ出さない
 - 検証済みHTTP success前にstateが更新されていないことを確認する
 
@@ -87,10 +88,11 @@ UniFiの再書き戻しや新旧serviceの競合が疑われます。新旧autom
 
 ```sh
 sudo systemctl status unifi-jpix-tunnel-repair-apply.service unifi-jpix-tunnel-repair-trigger.service unifi-jpix-tunnel-repair-watch.service unifi-jpix-tunnel-repair-update.timer
+sudo systemctl is-enabled unifi-jpix-tunnel-repair-trigger.service unifi-jpix-tunnel-repair-watch.service unifi-jpix-tunnel-repair-update.timer
 sudo systemctl list-dependencies unifi-jpix-tunnel-repair-trigger.service
 ```
 
-config存在条件、WAN readiness timeout、apply.serviceの失敗を先に確認します。triggerとwatchはapply成功前には起動しません。
+config存在条件、WAN readiness timeout、apply.serviceの失敗を先に確認します。triggerとwatchはapply成功前には起動しません。runbookでautomationを有効化済みの環境では、3 unitが`enabled`かつ`active`であることも確認します。
 
 ## UniFi OS upgrade後
 

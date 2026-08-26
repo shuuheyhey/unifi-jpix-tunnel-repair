@@ -39,9 +39,11 @@ UniFi OSが管理するnative IPv6接続を維持しながら、JPIX「v6プラ�
 ## systemdの起動関係
 
 - `apply.service`はWAN readinessを待ってからapplyし、成功後に更新通知を試行します。
-- `trigger.service`と`watch.service`は`apply.service`を必須とします。ただしIssue #2の未完了gateがある現在はenableしません。
+- `trigger.service`と`watch.service`は`apply.service`を必須とします。インストーラーはenableせず、手動apply、rollback、再applyを通過した環境でoperatorが明示的に有効化します。
 - `update.timer`は1分ごとにdue判定を起動します。実際の通知間隔は`UPDATE_INTERVAL_SECONDS`で制御します。
 - インストーラーはunitを配置するだけで、enableやstartを行いません。
+
+2026-08-26の検証実機では3 unitをenableし、再起動後のboot apply、active化、対象LAN通信復帰、短時間soak、timer初回tickを確認済みです。残る実機gateは[Validation](validation.md#現在の実機検証範囲)で管理します。
 
 ## 管理state
 

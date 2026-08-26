@@ -44,6 +44,6 @@ The connection diagnostic page reports browser-observed source addresses, source
 
 ## Project status
 
-This repository is an independent, unsupported integration. Live preflight on UDM Pro and UniFi OS 5 confirmed native IPv6, a UniFi-managed IPIP6 tunnel candidate, UniFi user chains, and DHCPv6-PD processing. A 2026-08-26 external service check identified the live connection as v6 Plus static IP and passed IPv4 and IPv6 connectivity checks. Project-controlled dry-run, apply, prefix-change recovery, reboot recovery, and rollback remain subject to live validation.
+This repository is an independent, unsupported integration. Live validation on one UDM Pro and UniFi OS 5 tuple confirmed native IPv6, DHCPv6-PD LAN `/64` evidence, a UniFi-managed IPIP6 tunnel, validated UniFi user hooks, project-controlled dry-run and apply, target-LAN IPv4/IPv6/DNS, provider notification, timed recovery, rollback, reapply, and reboot recovery. The new trigger, watch, and update timer were enabled and remained active after reboot; a short status soak and the first scheduled provider update succeeded. Public provider documentation and live reachability checks did not establish a supported HTTPS update endpoint, so the documented HTTP endpoint remains in use rather than guessing an HTTPS URL. Reprovision, prefix-change recovery, standalone-tunnel comparison, PMTUD, non-target-LAN client validation, and post-change browser validation remain open in Issues #3 through #7.
 
 No provider credentials or assigned deployment addresses are included in this repository.

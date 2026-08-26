@@ -51,4 +51,4 @@ sudo systemctl daemon-reload
 
 unitとfileの削除は自動化していません。configとstateは復旧資料になるため、必要性とbackupを確認してから個別に扱います。credentialを含むconfigを通常のarchiveやIssueへ入れないでください。
 
-再導入する場合は、原因を解消してpreflight、`--discover`、完全診断、dry-runから再検証してください。新実装を再applyし、status、provider `--force`、対象/対象外LAN確認が成功した後だけtimed recoveryを解除します。現在はautomationを有効化しません。
+再導入する場合は、原因を解消してpreflight、`--discover`、完全診断、dry-runから再検証してください。新実装を再applyし、status、provider `--force`、対象/対象外LAN確認が成功した後だけtimed recoveryを解除します。automationは無効のまま開始し、[導入runbookのactivation gate](udm-pro-setup.md#13-automationを有効化して再起動検証する)を改めて通過した場合だけ再有効化します。

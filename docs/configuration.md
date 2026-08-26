@@ -84,7 +84,7 @@ ALLOW_INSECURE_UPDATE_HTTP=no
 INSECURE_UPDATE_HTTP_HOST=
 ```
 
-HTTPしか提供されない場合、認証情報を通信経路上で暗号化できません。`fcs.enabler.ne.jp`の公開例もHTTPであり、この危険は変わりません。リスクを受け入れた場合だけ`yes`を指定し、URL authorityとhost設定を完全一致させます。providerが明示していないHTTPS URLへ推測で変更しません。明示portを含むauthorityは許可されません。URL内userinfo、control character、未知key、重複keyは拒否されます。
+HTTPしか提供されない場合、認証情報を通信経路上で暗号化できません。`fcs.enabler.ne.jp`の公開例もHTTPであり、この危険は変わりません。2026-08-26の公開資料確認と検証回線からの到達性確認でも正式なHTTPS提供を確認できなかったため、検証実機はHTTPを継続しています。リスクを受け入れた場合だけ`yes`を指定し、URL authorityとhost設定を完全一致させます。providerが明示していないHTTPS URLへ推測で変更しません。明示portを含むauthorityは許可されません。URL内userinfo、control character、未知key、重複keyは拒否されます。
 
 ## Configの作成
 

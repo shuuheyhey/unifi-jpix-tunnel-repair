@@ -1,6 +1,6 @@
 # UDM Pro 導入・移行runbook
 
-この文書は、初めてこのrepositoryを見る人が、管理PCからUDM Proへファイルを渡し、JPIX「v6プラス」固定IPサービスの1 IP品目を手動検証するための一本道の手順です。現在の方式は、UniFi管理トンネルを共有して補正するexperimental repairです。再起動、UniFi reprovision、prefix変更、project-owned独立トンネルとの比較が未完了なので、最後までautomationを有効化しないでください。
+この文書は、初めてこのrepositoryを見る人が、管理PCからUDM Proへファイルを渡し、JPIX「v6プラス」固定IPサービスの1 IP品目を手動検証し、明示的なgateを通過した環境でautomationと再起動復帰を確認するための一本道の手順です。現在の方式は、UniFi管理トンネルを共有して補正するexperimental repairです。インストーラーはautomationを有効化せず、手動apply、rollback、再applyが完了するまで無効のまま進めます。
 
 ## 0. ここで止まる条件
 
@@ -245,25 +245,48 @@ systemctl stop unifi-jpix-migration-recovery.timer
 systemctl reset-failed unifi-jpix-migration-recovery.service
 ```
 
-## 13. 現在はautomationを有効化しない
+## 13. automationを有効化して再起動検証する
 
-手動apply、手動rollback、再applyが成功しても、次は別の承認・検証境界です。
+手動apply、手動rollback、旧baseline復帰、新実装の再apply、対象LAN通信がすべて再現できた後だけ、automationを有効化する別の承認・検証phaseへ進みます。旧実装のtrigger、watch、update timerがdisabled/inactiveであること、別管理経路、root-only backup、復旧手順が維持されていることを先に確認します。
 
-- UDM再起動後の順序と復帰。
-- UniFi Network reprovision後の共有トンネル所有権。
-- DHCPv6-PD prefix変更時のendpoint追従とprovider再通知。
-- UniFi管理トンネル方式とproject-owned独立トンネル方式の比較。
-
-これらが未完了の間は、新旧両方のtrigger、watch、update timerをdisabled/inactiveのままにします。旧unit名はinventoryで確認した実値を使い、次の新unitだけの例を実行して完了扱いにしません。
+新しい3 unitを有効化します。`trigger.service`と`watch.service`は`apply.service`をrequireするため、現在状態が不正なら起動を成功扱いにしません。
 
 ```sh
-systemctl disable unifi-jpix-tunnel-repair-trigger.service \
+systemctl enable --now \
+  unifi-jpix-tunnel-repair-trigger.service \
   unifi-jpix-tunnel-repair-watch.service \
   unifi-jpix-tunnel-repair-update.timer
-systemctl stop unifi-jpix-tunnel-repair-trigger.service \
+systemctl is-enabled \
+  unifi-jpix-tunnel-repair-trigger.service \
   unifi-jpix-tunnel-repair-watch.service \
-  unifi-jpix-tunnel-repair-update.timer \
-  unifi-jpix-tunnel-repair-update.service
+  unifi-jpix-tunnel-repair-update.timer
+systemctl is-active \
+  unifi-jpix-tunnel-repair-trigger.service \
+  unifi-jpix-tunnel-repair-watch.service \
+  unifi-jpix-tunnel-repair-update.timer
+/data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-apply.sh status
 ```
 
-share-safeな合否、未実施gate、正確なcommitだけを[Issue #2](https://github.com/shuuheyhey/unifi-jpix-tunnel-repair/issues/2)へ記録します。
+3 unitがすべて`enabled`かつ`active`で、`status`と対象LAN通信が成功することを確認します。ここで終了せず、UDMの停止・起動と一時的な通信断について承認を得てから、実際の再起動phaseへ進みます。
+
+再起動前のBoot IDをroot-only worksheetへ保存し、通常の管理操作でUDMを停止・起動します。復帰後は次の順で確認します。
+
+1. Boot IDが変更され、実際の再起動である。
+2. WAN readiness後に`unifi-jpix-tunnel-repair-apply.service`が成功している。
+3. trigger、watch、update timerがenabled/activeで、旧実装がdisabled/inactiveである。
+4. `status`がhealthyで、route、policy rule、tag付きIPv4/IPv6 ruleにduplicateがない。
+5. 対象LANの固定IPv4出口、IPv4、native IPv6、DNSが復帰する。
+6. 複数回の定期`status`でエラーが増えず、update timerのtickが成功する。
+7. failed unitと試験用recovery timerが残っていない。
+
+2026-08-26の検証実機では、このphaseでBoot ID変更、WAN readiness後のapply、3 unitのactive化、対象LAN通信、2分間・9回の`status`エラー0、update timer初回tick成功、failed unit 0を確認しました。これは他環境の再起動gateを省略する根拠にはなりません。
+
+再起動以外の残作業は[Validation](validation.md#現在の実機検証範囲)を正本とし、次のIssueで追跡します。
+
+- [Issue #3](https://github.com/shuuheyhey/unifi-jpix-tunnel-repair/issues/3): UniFi Network reprovisionとNetwork application restart
+- [Issue #4](https://github.com/shuuheyhey/unifi-jpix-tunnel-repair/issues/4): DHCPv6-PD prefix変更とprovider通知追従
+- [Issue #5](https://github.com/shuuheyhey/unifi-jpix-tunnel-repair/issues/5): standalone tunnelとの比較
+- [Issue #6](https://github.com/shuuheyhey/unifi-jpix-tunnel-repair/issues/6): PMTUD、UDP、VPN
+- [Issue #7](https://github.com/shuuheyhey/unifi-jpix-tunnel-repair/issues/7): 対象外LANと変更後browser判定
+
+share-safeな合否と正確なcommitだけを各Issueへ記録します。

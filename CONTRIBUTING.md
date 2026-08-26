@@ -9,7 +9,7 @@ Issue、文書修正、test追加、UniFi OS互換性報告を歓迎します。
 - config、state、完全診断、provider response、journal全文を貼らない
 - セキュリティ問題は公開Issueではなく[Private Vulnerability Reporting](SECURITY.md)を使用する
 
-UniFi OS 5ではPDが成功していてもaggregate routeを残さず、現行preflightが`DHCPV6_PD_ROUTE=absent`と誤判定する場合があります。PD問題を報告する場合は、実prefixを伏せたうえで、WANのPD設定、DHCPv6 client、IA_PD、LAN向けglobal `/64`のpresent/absentまたは件数を添えてください。
+UniFi OS 5ではPDが成功していてもaggregate routeを残さず、LAN bridge向けglobal kernel `/64`だけを展開する場合があります。現行preflightは`DHCPV6_PD_ROUTE`と`DHCPV6_PD_LAN64_EVIDENCE`を分けて報告します。PD問題を報告する場合は、実prefixを伏せたうえで、WANのPD設定、DHCPv6 client、IA_PD、両evidenceのpresent/absent、LAN向けglobal `/64`の件数を添えてください。
 
 ## 変更の原則
 

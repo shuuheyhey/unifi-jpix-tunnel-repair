@@ -4,11 +4,29 @@
 
 ## 現在の実機検証範囲
 
-UDM Pro・UniFi OS 5系で、native IPv6、IPIP6トンネル候補、UniFi user chain、DHCPv6-PDのIA_PD処理とLANへのglobal `/64`展開を確認済みです。2026-08-26の外部接続試験ではJPIX判定`5999`（v6プラス固定IP）、IPv4、IPv6、フレッツ西日本到達性、v6プラス用試験が成功しました。
+2026-08-26時点のUDM Pro・UniFi OS 5系実機結果を、次の表を正本として管理します。完全address、prefix、interface名、config、state、credential、raw logは含めていません。
 
-この接続試験は変更前baselineです。Issue #2のP0/P1を反映した新schemaでは、旧実装停止後のdry-run、手動apply、`status`、対象LAN実端末からの固定IPv4出口・native IPv6・DNS、provider通知、timed recovery、`off`、旧実装への復帰、再applyを同じ実機で確認済みです。新旧automationはdisabled/inactiveのままです。
+| 検証項目 | 状態 | Share-safeな結果 |
+| --- | --- | --- |
+| platformと導入前提 | 完了 | exact platform tuple、legacy backend、native IPv6、DHCPv6-PD LAN `/64` evidence、UniFi管理IPIP6 tunnel候補、検証済みuser hookを確認 |
+| 手動移行 | 完了 | 旧実装停止後のdry-run、apply、`status`、provider通知、対象LANの固定IPv4出口・native IPv6・DNSを確認 |
+| rollbackと再apply | 完了 | timed recovery、新実装`off`、元トンネル復元、旧baseline復帰、新実装の再applyを確認 |
+| 再起動とboot apply | 完了 | shutdown/startによるBoot ID変更、WAN readiness後のapply成功、対象LAN通信復帰を確認 |
+| 新automation | 有効・稼働中 | `trigger.service`、`watch.service`、`update.timer`がenabled/active。旧実装はdisabled/inactive |
+| 短時間soak | 完了 | 再起動後2分間・9回の定期`status`でエラー0、provider update timerの初回tick成功、failed unit 0 |
+| provider transport | HTTPを継続 | 公開資料に正式なHTTPS URLは見つからず、実機と対象LANからのHTTPS接続も成立しなかったため、推測したHTTPS URLへ変更していない |
 
-手動apply後のHTTPによる単純取得では、interactiveなJPIX判定`5999`を再現できませんでした。したがって変更前の手動browser結果をbaselineとして残し、変更後のJPIX判定を成功扱いにはしていません。対象外LANはrule scopeとmanaged stateでは確認しましたが、対象外LAN実端末からの外部到達性は未測定です。prefix変更追従、再起動復帰、reprovision、独立トンネル比較、PMTUD、UDP、VPNも未完了です。[Issue #2](https://github.com/shuuheyhey/unifi-jpix-tunnel-repair/issues/2)で結果を追跡します。
+変更前browser baselineでは、JPIX判定`5999`（v6プラス固定IP）、IPv4、IPv6、フレッツ西日本到達性、v6プラス用試験が成功しました。手動apply後の単純HTTP取得ではinteractiveな判定を再現できないため、変更後の同一browser/LAN比較は完了扱いにしていません。
+
+残作業は[親Issue #2](https://github.com/shuuheyhey/unifi-jpix-tunnel-repair/issues/2)から次へ分割しています。
+
+- [Issue #3](https://github.com/shuuheyhey/unifi-jpix-tunnel-repair/issues/3): UniFi Network reprovisionとNetwork application restart後の自動収束
+- [Issue #4](https://github.com/shuuheyhey/unifi-jpix-tunnel-repair/issues/4): DHCPv6-PD prefix変更後のendpoint、outer rule、provider通知追従
+- [Issue #5](https://github.com/shuuheyhey/unifi-jpix-tunnel-repair/issues/5): project-owned standalone tunnelとの実機比較
+- [Issue #6](https://github.com/shuuheyhey/unifi-jpix-tunnel-repair/issues/6): PMTUD、ICMPv6 Packet Too Big、大きなUDP、VPN
+- [Issue #7](https://github.com/shuuheyhey/unifi-jpix-tunnel-repair/issues/7): 対象外LAN実端末と変更後JPIX接続判定
+
+新automationの再起動復帰が成功していても、Issue #3〜#7の完了やproduction readinessを意味しません。現方式は引き続きUniFi管理トンネルを共有するexperimental repairです。
 
 ## 外部接続判定をbaselineとして使う
 
@@ -100,20 +118,22 @@ sudo /data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-update.sh -
 
 - DHCPv6-PD更新または同等の安全な試験後にlocal endpointが追従する
 - 古いendpoint、route、rule、outer accept ruleが残らない
-- provider通知が必要な場合は、HTTPS成功後だけstateが更新される
+- provider通知は設定されたURL scheme、HTTP status、response判定が成功した場合だけstateを更新する
+- HTTPを使用する場合は明示opt-inとexact host一致があり、providerが明示していないHTTPS URLへ推測で変更していない
 - provider responseやcredentialがjournalへ出ない
 
-## 7. rollback・再apply・未完了gate
+## 7. rollback・再apply・automation gate
 
 - `off`で元のUniFiトンネルと通常経路へ復帰する
 - `off`後も対象外LANとnative IPv6が維持される
 - 旧実装を再applyしてbaselineへ戻せる
 - 旧実装を再びoffにし、新実装の手動apply、status、provider `--force`、通信確認を再現できる
-- trigger、watch、update timerはdisabled/inactiveのままである
+- automationを有効化する前に、手動apply、通信確認、`off`、rollback、再applyが再現できる
+- enabled状態で実際に再起動し、WAN readiness後のapply、unit稼働、通信復帰、duplicate不在、timer tickを確認する
 
-実機移行では、service状態変更後にtag付きSNAT ruleが1回欠落しました。手動再applyで復旧し、時間を置いた`status`でもhealthyを再確認しましたが、UniFi管理状態との共有所有権が解消した証拠にはなりません。単発のhealthyをautomation有効化の根拠にしないでください。
+実機移行では、service状態変更後にtag付きSNAT ruleが1回欠落しました。手動再applyで復旧後、新automationを有効化して再起動し、2分間・9回の`status`でエラー0を確認しました。ただし、UniFi管理状態との共有所有権が解消した証拠にはなりません。
 
-UDM再起動、UniFi reprovision、prefix変更、独立トンネル比較、PMTUD、UDP、VPN、対象外LAN実端末の外部到達性は別の承認と検証が必要です。それらが完了するまで新旧automationを有効化しません。
+現在の実機では、新しいtrigger、watch、update timerがenabled/activeで、旧実装はdisabled/inactiveです。UniFi reprovision、Network application restart、prefix変更、独立トンネル比較、PMTUD、UDP、VPN、対象外LAN実端末の外部到達性はIssue #3〜#7として別の承認と検証が必要です。
 
 ## 結果の共有
 
