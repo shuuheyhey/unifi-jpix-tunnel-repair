@@ -5,7 +5,7 @@ labels: [bug]
 body:
   - type: markdown
     attributes:
-      value: Do not include credentials, complete public addresses, prefixes, device identifiers, or full diagnostics. Use share-safe output only.
+      value: Do not include credentials, complete addresses, prefixes, interface names, device identifiers, config, state, full diagnostics, or raw logs. Use share-safe output only.
   - type: textarea
     id: summary
     attributes:
@@ -17,7 +17,7 @@ body:
     id: platform
     attributes:
       label: Platform
-      description: Device model and UniFi OS major/minor series only.
+      description: Device model and UniFi OS or Network series only. Generalize the exact version when it is not required.
     validations:
       required: true
   - type: textarea
@@ -28,16 +28,28 @@ body:
     validations:
       required: true
   - type: textarea
+    id: preflight
+    attributes:
+      label: Share-safe preflight
+      description: For pre-install problems, paste only output beginning with PREFLIGHT_MODE=share-safe.
+  - type: textarea
     id: diagnostics
     attributes:
       label: Share-safe diagnostics
-      description: Paste only DIAGNOSTIC_MODE=share-safe output.
+      description: For configured installations, paste only output beginning with DIAGNOSTIC_MODE=share-safe.
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation stage
+      description: State the last completed validation stage and the first failing stage. Do not paste full diagnostic or journal content.
   - type: checkboxes
     id: checks
     attributes:
       label: Safety checks
       options:
-        - label: I removed credentials, addresses, prefixes, MACs, serials, device IDs, and full diagnostics.
+        - label: I removed credentials, addresses, prefixes, MACs, interface names, serials, device IDs, config, state, and full diagnostics.
+          required: true
+        - label: I did not treat DHCPV6_PD_ROUTE=absent alone as proof of PD failure on UniFi OS 5.
           required: true
         - label: This is not a security vulnerability.
           required: true
