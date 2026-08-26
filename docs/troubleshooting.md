@@ -39,6 +39,10 @@ UniFi OS updateでchain名、親chain接続、netfilter backendが変わった�
 
 設定した`ENDPOINT_IF`にglobal kernel `/64`が0件または複数あります。WAN/BR route sourceの上位64bitで代用しません。UniFi LAN設定、delegated prefix、exact interfaceのkernel routeを照合し、一意にならない場合は停止します。
 
+### discoveryのトンネル候補が複数ある
+
+clean installでは推測や先頭候補の採用をせず停止します。旧実装からの移行に限り、旧`status`がhealthy、旧configで明示されたinterfaceがBR remote一致候補内、root-only backupとtimed recoveryが準備済み、の全条件を満たすときだけ同じinterfaceを継続候補として手動指定できます。根拠はprivate worksheetへ残し、Issueへinterface名を貼りません。
+
 ## `invalid ... configuration`
 
 - directoryのcanonical path、owner、mode、symlinkを確認する
@@ -58,6 +62,18 @@ sudo journalctl -u unifi-jpix-tunnel-repair-apply.service -n 100 --no-pager
 ```
 
 journalは共有せず実機内で確認します。`phase=`、`drift=`、rollback結果を確認し、同じ状態でapplyを繰り返さないでください。rollback work directoryが保存された場合は削除せず、復旧資料として保全します。
+
+### 旧実装稼働中のdry-runがresource collisionになる
+
+旧実装が同じtable、rule priority、tunnel、hookを所有している可能性があります。衝突検査を緩めず、timed recoveryをactiveにして旧automationを停止し、確認済みの旧`off`でmanaged stateを戻した直後にdry-runを再実行します。それでもexit `0`でなければapplyしません。
+
+### `off`が元トンネルlocalを復元できない
+
+元値がIPv4-mapped IPv6表現でも、対応releaseはstrict validation後にsnapshotと完全一致する値を復元します。古いreleaseで失敗した場合は手動変換・削除を行わず、stateと完全出力を実機内に保全し、timed recoveryで旧実装へ戻してから更新してください。
+
+### apply後にtag付きSNAT ruleだけが消える
+
+UniFiの再書き戻しや新旧serviceの競合が疑われます。新旧automationを停止し、`status`でdriftを確認してから手動applyを1回だけ実行し、時間を置いて再度`status`を確認します。再発時は自動化せず、reprovisionと共有トンネル所有権の検証課題として扱います。
 
 ## Provider更新が失敗する
 

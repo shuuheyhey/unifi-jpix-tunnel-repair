@@ -153,7 +153,9 @@ share-safe stdoutが`RESULT=ready`で、root-only full outputに次が一意に�
 - `ENDPOINT_PREFIX_STATUS=unique`。
 - 契約IIDから合成されたlocal endpoint。
 
-0件または複数件なら推測で選ばず停止します。`--discover`は既存トンネルを変更しません。
+0件または複数件なら推測で選ばず停止します。新規導入では例外を設けません。`--discover`は既存トンネルを変更しません。
+
+旧実装からの移行で複数候補になった場合も、自動選択はしません。ただし、旧実装の直前`status`がhealthyで、旧configの明示的な`TUN_IF`がdiscoveryのBR remote一致候補に含まれ、root-only backupとtimed recoveryが準備済みなら、継続性を保つ移行候補として同じinterfaceを手動指定できます。private worksheetへ根拠を残し、一つでも証明できなければ停止します。これはclean installの候補選択には使えません。
 
 ## 8. 完全configを作る
 
@@ -179,7 +181,9 @@ share-safe stdoutが`RESULT=ready`で、root-only full outputに次が一意に�
 /data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-apply.sh --dry-run apply
 ```
 
-次へ進めるのは、share-safe診断が`RESULT=ready`、dry-runがexit `0`、完全診断のplatform、hook、endpoint、tunnel、MTU、reserved table/ruleに説明不能な差分がない場合だけです。
+次へ進めるのは、share-safe診断が`RESULT=ready`で、完全診断のplatform、hook、endpoint、tunnel、MTUに説明不能な差分がない場合だけです。
+
+旧実装が同じtable、rule priority、tunnel、hookを現在所有している移行では、この段階のdry-runがreserved resource collisionで失敗することがあります。これは競合を安全側で検出した結果であり、無視してapplyしてはいけません。次節でtimed recoveryを再確認し、旧automationと旧managed stateを停止した直後にdry-runを再実行してexit `0`を必須にします。clean installまたは競合のない環境では、この節でdry-runがexit `0`にならなければ停止します。
 
 ## 10. 旧automationを止め、新実装を手動applyする
 
@@ -194,7 +198,13 @@ systemctl stop "$OLD_TRIGGER" "$OLD_WATCH" "$OLD_UPDATE_TIMER"
 "$OLD_APPLY" off
 ```
 
-続けて新実装を手動適用します。
+旧managed stateを外した直後に、同じconfigでdry-runをやり直します。exit `0`で、予約table・rule・tag付きruleの計画に説明不能な差分がない場合だけ続行します。
+
+```sh
+/data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-apply.sh --dry-run apply
+```
+
+続けて新実装を手動適用します。timerが作業中に発火した場合は、自動復旧結果を確認して新しいphaseとしてtimerを予約し直し、旧停止とdry-runからやり直します。
 
 ```sh
 /data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-apply.sh apply
@@ -224,7 +234,9 @@ systemctl stop "$OLD_TRIGGER" "$OLD_WATCH" "$OLD_UPDATE_TIMER"
 /data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-apply.sh off
 ```
 
-保存したoriginal tunnel、旧IPv4経路、native IPv6、対象外LANが戻ったことを確認します。その後、旧実装を再applyしてbaselineを確認し、再び旧実装をoffにしてから新実装を手動apply、`status`、provider `--force`、通信検証まで繰り返します。
+保存したoriginal tunnel、旧IPv4経路、native IPv6、対象外LANが戻ったことを確認します。元トンネルのlocalは通常のIPv6表現だけでなく、厳密に妥当なIPv4-mapped IPv6表現の場合があります。対応releaseを使い、保存値を表示・書き換えずに`off`で完全復元できることを確認してください。
+
+その後、旧実装を再applyしてbaselineを確認し、再び旧実装をoffにしてから新実装を手動apply、`status`、provider `--force`、通信検証まで繰り返します。
 
 成功後だけtimed recoveryを解除します。
 
@@ -242,7 +254,7 @@ systemctl reset-failed unifi-jpix-migration-recovery.service
 - DHCPv6-PD prefix変更時のendpoint追従とprovider再通知。
 - UniFi管理トンネル方式とproject-owned独立トンネル方式の比較。
 
-これらが未完了の間は、trigger、watch、update timerをdisabled/inactiveのままにします。
+これらが未完了の間は、新旧両方のtrigger、watch、update timerをdisabled/inactiveのままにします。旧unit名はinventoryで確認した実値を使い、次の新unitだけの例を実行して完了扱いにしません。
 
 ```sh
 systemctl disable unifi-jpix-tunnel-repair-trigger.service \

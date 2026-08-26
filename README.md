@@ -35,7 +35,9 @@ IPIPというデータ転送方式が同じでも、JPIX固定IPとHB46PP対応I
 - UniFi OS 5の実機では、DHCPv6-PDが動作していてもaggregate routeを残さず、LAN bridge向け`/64`の`proto kernel` routeだけを展開する場合があります。preflightはこの状態を`DHCPV6_PD_ROUTE=absent`、`DHCPV6_PD_LAN64_EVIDENCE=present`として区別し、PD成立の証拠として扱います。
 - 2026-08-26の実機接続試験では、JPIX判定`5999`（v6プラス固定IP）、IPv4、IPv6、フレッツ西日本到達性、v6プラス用試験が成功しました。これはその時点の回線状態を確認した結果であり、このツールによる修復成功を単独で証明するものではありません。[接続判定ページの使い方と読み方](docs/service-and-protocols.md#9-jpnejpix-ipv4ipv6接続判定ページ)も確認してください。
 - Issue #2のreviewを受け、endpointは明示したdelegated-prefix interfaceの一意なkernel `/64`から生成し、policy ruleはsource CIDRとingress interfaceの両方へ限定しました。exact platform、UniFi hook parent、legacy backend、MTU/MSS、tunnel attributeもmutation前に検査します。
-- 新schemaでの手動dry-run、apply、provider通知、rollback、再applyは実機確認待ちです。再起動、reprovision、prefix変更、独立トンネル比較も未完了であり、automationは有効化しません。進捗は[Issue #2](https://github.com/shuuheyhey/unifi-jpix-tunnel-repair/issues/2)で管理します。
+- Issue #2対応版を実機へ移行し、競合する旧実装を停止した後のdry-run、手動apply、`status`、provider通知、対象LANからの固定IPv4出口・native IPv6・DNS、timed recovery、`off`、旧実装への復帰、再applyを確認しました。移行中に見つかったroot所有`0775`のsystemd親directoryと、元トンネルlocalのIPv4-mapped IPv6表現もstrict validationを維持したまま対応済みです。
+- service状態変更後にUniFi側の書き戻しとみられるtag付きSNAT ruleのdriftを1回観測し、手動再applyで復旧後も再確認しました。共有トンネルの所有権競合が残る実測証拠として扱い、新旧automationはdisabled/inactiveのままです。
+- 再起動、reprovision、prefix変更、独立トンネル比較、PMTUD・UDP・VPN、対象外LAN実端末の外部到達性は未完了です。進捗は[Issue #2](https://github.com/shuuheyhey/unifi-jpix-tunnel-repair/issues/2)で管理します。
 
 実機検証が完了するまで、検証環境以外へ適用しないでください。
 
@@ -97,7 +99,7 @@ sudo ./scripts/unifi-jpix-tunnel-repair-preflight.sh
 
 ## English summary
 
-An unofficial and experimental POSIX-shell implementation for one static IPv4 address on JPIX's v6 Plus static-IP service, using a UniFi-managed tunnel on UDM Pro. It does not support ordinary MAP-E v6 Plus, multi-address static-IP plans, HB46PP, other VNE services, or standalone tunnel creation. It installs inertly, validates an exact platform tuple and delegated LAN /64 before mutation, source-scopes policy rules, forbids global firewall-chain fallback, and emits share-safe preflight and diagnostic output. Live migration, reboot, reprovision, prefix-change and standalone-tunnel comparison remain incomplete; automation must stay disabled.
+An unofficial and experimental POSIX-shell implementation for one static IPv4 address on JPIX's v6 Plus static-IP service, using a UniFi-managed tunnel on UDM Pro. It does not support ordinary MAP-E v6 Plus, multi-address static-IP plans, HB46PP, other VNE services, or standalone tunnel creation. It installs inertly, validates an exact platform tuple and delegated LAN /64 before mutation, source-scopes policy rules, forbids global firewall-chain fallback, and emits share-safe preflight and diagnostic output. Manual live migration, rollback and reapply have been verified on the listed platform tuple. Reboot, reprovision, prefix-change and standalone-tunnel comparison remain incomplete; automation must stay disabled.
 
 ## License
 

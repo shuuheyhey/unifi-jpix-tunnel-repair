@@ -6,7 +6,9 @@
 
 UDM Pro・UniFi OS 5系で、native IPv6、IPIP6トンネル候補、UniFi user chain、DHCPv6-PDのIA_PD処理とLANへのglobal `/64`展開を確認済みです。2026-08-26の外部接続試験ではJPIX判定`5999`（v6プラス固定IP）、IPv4、IPv6、フレッツ西日本到達性、v6プラス用試験が成功しました。
 
-この接続試験は現在の実機回線が動作しているbaselineです。Issue #2のP0/P1を反映した新schemaでのdry-run、手動apply、対象LANからの固定IPv4出口、provider通知、rollback、再applyは実機確認待ちです。prefix変更追従、再起動復帰、reprovision、独立トンネル比較も未完了です。[Issue #2](https://github.com/shuuheyhey/unifi-jpix-tunnel-repair/issues/2)で結果を追跡します。
+この接続試験は変更前baselineです。Issue #2のP0/P1を反映した新schemaでは、旧実装停止後のdry-run、手動apply、`status`、対象LAN実端末からの固定IPv4出口・native IPv6・DNS、provider通知、timed recovery、`off`、旧実装への復帰、再applyを同じ実機で確認済みです。新旧automationはdisabled/inactiveのままです。
+
+手動apply後のHTTPによる単純取得では、interactiveなJPIX判定`5999`を再現できませんでした。したがって変更前の手動browser結果をbaselineとして残し、変更後のJPIX判定を成功扱いにはしていません。対象外LANはrule scopeとmanaged stateでは確認しましたが、対象外LAN実端末からの外部到達性は未測定です。prefix変更追従、再起動復帰、reprovision、独立トンネル比較、PMTUD、UDP、VPNも未完了です。[Issue #2](https://github.com/shuuheyhey/unifi-jpix-tunnel-repair/issues/2)で結果を追跡します。
 
 ## 外部接続判定をbaselineとして使う
 
@@ -109,7 +111,9 @@ sudo /data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-update.sh -
 - 旧実装を再びoffにし、新実装の手動apply、status、provider `--force`、通信確認を再現できる
 - trigger、watch、update timerはdisabled/inactiveのままである
 
-UDM再起動、UniFi reprovision、prefix変更、独立トンネル比較は別の承認と検証が必要です。それらが完了するまでautomationを有効化しません。
+実機移行では、service状態変更後にtag付きSNAT ruleが1回欠落しました。手動再applyで復旧し、時間を置いた`status`でもhealthyを再確認しましたが、UniFi管理状態との共有所有権が解消した証拠にはなりません。単発のhealthyをautomation有効化の根拠にしないでください。
+
+UDM再起動、UniFi reprovision、prefix変更、独立トンネル比較、PMTUD、UDP、VPN、対象外LAN実端末の外部到達性は別の承認と検証が必要です。それらが完了するまで新旧automationを有効化しません。
 
 ## 結果の共有
 
