@@ -2,6 +2,8 @@
 
 ネットワーク変更前にローカルconsoleまたは別管理経路を確保してください。SSHだけに依存すると、routeやfirewallの誤設定時に復旧できません。
 
+初回移行では[UDM Pro導入・移行runbook](udm-pro-setup.md#5-timed-recoveryを予約する)に沿い、旧実装への復帰scriptを`systemd-run --on-active`で予約してから変更します。timerがactiveでなければapplyしません。
+
 ## 1. 自動処理を停止する
 
 ```sh
@@ -36,6 +38,8 @@ sudo /data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-apply.sh of
 - 対象外LANが変化していない
 - このプロジェクトのtag付きroute、rule、netfilter stateだけが消えた
 
+旧実装からの移行中は、続けて確認済みの旧apply commandを実行し、変更前baselineへ戻ることを確認します。旧pathやunit名は実機inventoryを正とし、推測しません。
+
 ## 5. Boot automationを無効化する
 
 ```sh
@@ -47,4 +51,4 @@ sudo systemctl daemon-reload
 
 unitとfileの削除は自動化していません。configとstateは復旧資料になるため、必要性とbackupを確認してから個別に扱います。credentialを含むconfigを通常のarchiveやIssueへ入れないでください。
 
-再導入する場合は、残ったstateを流用せず、原因を解消してpreflightから再検証してください。
+再導入する場合は、原因を解消してpreflight、`--discover`、完全診断、dry-runから再検証してください。新実装を再applyし、status、provider `--force`、対象/対象外LAN確認が成功した後だけtimed recoveryを解除します。現在はautomationを有効化しません。

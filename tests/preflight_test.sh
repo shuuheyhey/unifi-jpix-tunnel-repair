@@ -9,6 +9,7 @@ TMP_BASE=$(CDPATH= cd -- "${TMPDIR:-/tmp}" && pwd -P)
 TMP=${TMP_BASE%/}/unifi-jpix-tunnel-repair-preflight-test.$$
 trap 'chmod -R u+rwX "$TMP" 2>/dev/null || :; rm -rf "$TMP"' EXIT HUP INT TERM
 mkdir -p "$TMP/project" "$TMP/absent-project" "$TMP/missing-bin" "$TMP/present-bin"
+printf '10.5.67.0-g6e0e987bf\n' >"$TMP/network-version"
 ln -s "$(command -v awk)" "$TMP/missing-bin/awk"
 ln -s "$(command -v awk)" "$TMP/present-bin/curl"
 ln -s "$(command -v awk)" "$TMP/present-bin/systemctl"
@@ -23,6 +24,7 @@ run_preflight() {
   PATH=${RUN_PATH:-$PREFLIGHT_PATH} \
     PREFLIGHT_PROJECT_ROOT=${PREFLIGHT_PROJECT_ROOT:-$TMP/absent-project/not-installed} \
     PREFLIGHT_VERSION_FILE=$TMP/missing-version \
+    PREFLIGHT_NETWORK_VERSION_FILE=$TMP/network-version \
     STUB_LOG=$TMP/calls.log \
     "$ROOT/scripts/unifi-jpix-tunnel-repair-preflight.sh" "$@" >"$RUN_OUTPUT" 2>"$RUN_ERROR"
   RUN_STATUS=$?
@@ -40,6 +42,10 @@ test_start 'preflight output is explicitly share-safe'
 assert_contains "$output" 'PREFLIGHT_MODE=share-safe'
 test_start 'target UniFi OS is recognized without exposing the version'
 assert_contains "$output" 'UNIFI_OS_COMPATIBILITY=target'
+test_start 'exact verified platform tuple is required without exposing its values'
+assert_contains "$output" 'UNIFI_NETWORK_VERSION=verified
+PLATFORM_COMPATIBILITY=verified
+XTABLES_BACKEND=legacy'
 test_start 'ready preflight reports required network capabilities'
 assert_contains "$output" 'IPV6_DEFAULT_ROUTE=present
 IPV6_GLOBAL_ADDRESS=present
@@ -49,7 +55,9 @@ IPIP6_TUNNEL_CANDIDATE_COUNT=2
 IPIP6_TUNNEL_READY_COUNT=1'
 test_start 'ready preflight reports UniFi firewall hooks'
 assert_contains "$output" 'UNIFI_NAT_USER_CHAIN=present
-UNIFI_IPV6_INPUT_USER_CHAIN=present'
+UNIFI_NAT_PARENT_JUMP=present
+UNIFI_IPV6_INPUT_USER_CHAIN=present
+UNIFI_IPV6_INPUT_PARENT_JUMP=present'
 test_start 'absent installation is informational'
 assert_contains "$output" 'PROJECT_INSTALLATION=absent
 RESULT=ready-for-config'
@@ -96,10 +104,12 @@ assert_contains "$(cat "$RUN_OUTPUT")" 'RESULT=needs-attention'
 
 test_start 'preflight invokes only the expected read-only command families'
 unexpected_calls=$(printf '%s\n' "$calls" | awk '
-  $1 != "id" && $1 != "ubnt-device-info" && $1 != "dpkg-query" &&
+  $1 != "id" && $1 != "ubnt-device-info" && $1 != "uname" &&
   $1 != "ip" && $1 != "iptables" && $1 != "ip6tables" { print }
 ')
 assert_eq "$unexpected_calls" ''
+test_start 'preflight does not trust a removed dpkg package record'
+if grep -F 'dpkg-query' "$TMP/calls.log" >/dev/null 2>&1; then fail 'dpkg-query was invoked'; else pass; fi
 
 test_start 'preflight issues no mutation command'
 if grep -E ' (add|change|replace|set|del|delete|flush|-A|-I|-D|-F|-N|-X)( |$)' "$TMP/calls.log" >/dev/null; then
@@ -133,6 +143,40 @@ case $(cat "$RUN_OUTPUT")$(cat "$RUN_ERROR") in
   *4.1.13*) fail 'exact version leaked' ;;
   *) pass ;;
 esac
+
+for platform_mode in unsupported-kernel unsupported-iproute nft-backend; do
+  PREFLIGHT_STUB_MODE=$platform_mode run_preflight
+  test_start "$platform_mode makes the exact platform gate non-ready"
+  assert_eq "$RUN_STATUS" 1
+  test_start "$platform_mode reports only share-safe platform classifications"
+  assert_contains "$(cat "$RUN_OUTPUT")" 'PLATFORM_COMPATIBILITY=unknown'
+done
+
+cp "$TMP/network-version" "$TMP/network-version.good"
+printf '10.5.68.0-unknown\n' >"$TMP/network-version"
+run_preflight
+test_start 'unknown UniFi Network version makes the exact platform gate non-ready'
+assert_eq "$RUN_STATUS" 1
+test_start 'unknown UniFi Network version is not disclosed'
+assert_contains "$(cat "$RUN_OUTPUT")" 'UNIFI_NETWORK_VERSION=unverified
+PLATFORM_COMPATIBILITY=unknown'
+mv "$TMP/network-version.good" "$TMP/network-version"
+
+for parent_mode in missing-parent duplicate-parent detached-parent; do
+  PREFLIGHT_STUB_MODE=$parent_mode run_preflight
+  test_start "$parent_mode makes the NAT hook gate non-ready"
+  assert_eq "$RUN_STATUS" 1
+  test_start "$parent_mode reports no verified NAT parent jump"
+  assert_contains "$(cat "$RUN_OUTPUT")" 'UNIFI_NAT_PARENT_JUMP=absent'
+done
+
+for parent_mode in missing-v6-parent duplicate-v6-parent detached-v6-parent; do
+  PREFLIGHT_STUB_MODE=$parent_mode run_preflight
+  test_start "$parent_mode makes the IPv6 hook gate non-ready"
+  assert_eq "$RUN_STATUS" 1
+  test_start "$parent_mode reports no verified IPv6 input parent jump"
+  assert_contains "$(cat "$RUN_OUTPUT")" 'UNIFI_IPV6_INPUT_PARENT_JUMP=absent'
+done
 
 RUN_PATH=$ROOT/tests/stubs/preflight:$TMP/missing-bin run_preflight
 test_start 'missing required dependencies make preflight non-ready'

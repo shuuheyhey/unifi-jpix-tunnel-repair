@@ -11,10 +11,12 @@ trap 'chmod -R u+rwX "$TMP" 2>/dev/null || :; rm -rf "$TMP"' EXIT HUP INT TERM
 STATE=$TMP/state
 mkdir -p "$TMP/config" "$TMP/missing-bin" "$STATE"
 chmod 700 "$STATE"
+printf '10.5.67.0-g6e0e987bf\n' >"$TMP/network-version"
 
 cat >"$TMP/config/gateway.conf" <<'EOF'
 WAN_IF=eth9
 TUN_IF=ip6tnl1
+ENDPOINT_IF=br0
 STATIC_V4=203.0.113.42
 BR_V6=2001:db8:ffff::1
 IID=00cb:0071:2a00:0000
@@ -37,6 +39,7 @@ export V6PLUS_ALLOW_DOCUMENTATION_ADDRESSES=1
 export V6PLUS_LIB="$ROOT/scripts/unifi-jpix-tunnel-repair-lib.sh"
 export V6PLUS_STATE_DIR=$STATE
 export V6PLUS_ALLOW_NONROOT=1
+export V6PLUS_NETWORK_VERSION_FILE=$TMP/network-version
 
 run_diag() {
   RUN_OUTPUT=$TMP/output
@@ -53,7 +56,7 @@ run_diag() {
     DIAG_NO_ROUTE_SOURCE DIAG_OUTER_APPROVED_TAG DIAG_OUTER_ARBITRARY_COMMENT \
     DIAG_OUTER_EXTRA DIAG_OUTER_IPENCAP DIAG_OUTER_NEGATED DIAG_OUTER_UNTAGGED \
     DIAG_SNAPSHOT_SECRETS DIAG_TUNNEL_ABSENT DIAG_TUNNEL_LIST_MODE \
-    DIAG_TUNNEL_WRONG_MODE DIAG_UBNT_MODE DIAG_WAN_DOWN \
+    DIAG_TUNNEL_WRONG_MODE DIAG_UBNT_MODE DIAG_WAN_DOWN DIAG_ENDPOINT_PREFIX_MODE \
     DIAG_ZERO_PREFERRED_ONLY V6PLUS_VERSION_DRAIN_MARKER V6PLUS_VERSION_FILE
   set -e
 }
@@ -91,10 +94,13 @@ assert_contains "$output" 'WAN_IF=eth9'
 test_start 'full diagnostics uses configured tunnel selection'
 assert_contains "$output" 'TUN_SELECTION=configured
 TUN_IF=ip6tnl1'
+test_start 'full diagnostics reads the exact Network version from the live application file seam'
+assert_contains "$output" 'UNIFI_NETWORK_VERSION=10.5.67.0-g6e0e987bf'
 test_start 'route-selected source is expanded'
 assert_contains "$output" 'BR_ROUTE_SOURCE_V6=2001:0db8:1234:0030:abcd:0000:0000:0001'
-test_start 'local endpoint uses route source upper 64 bits'
-assert_contains "$output" 'LOCAL_TUNNEL_V6=2001:0db8:1234:0030:00cb:0071:2a00:0000'
+test_start 'local endpoint uses the configured endpoint interface delegated /64'
+assert_contains "$output" 'ENDPOINT_PREFIX_STATUS=unique
+LOCAL_TUNNEL_V6=2001:0db8:1234:0020:00cb:0071:2a00:0000'
 test_start 'tunnel remote is collected read-only'
 assert_contains "$output" 'TUN_REMOTE_V6=2001:db8:ffff::1'
 test_start 'exact outer accept recognizes explicit host prefixes'
@@ -109,6 +115,8 @@ test_start 'second network is numbered in file order'
 assert_contains "$output" 'NETWORK_2_IFACE=br10'
 test_start 'BR route lookup was issued'
 assert_contains "$calls" 'ip -6 route get 2001:db8:ffff::1'
+test_start 'endpoint prefix lookup uses kernel routes'
+assert_contains "$calls" 'ip -6 route show table all proto kernel'
 test_start 'preferred global WAN address wins over deprecated address'
 assert_contains "$output" 'WAN_GLOBAL_V6=2001:0db8:1234:0030:abcd:0000:0000:0001'
 test_start 'PD candidates are normalized sorted and deduplicated'
@@ -162,6 +170,7 @@ WAN_GLOBAL_V6
 PD_PREFIX_1
 PD_PREFIX_2
 BR_ROUTE_SOURCE_V6
+ENDPOINT_PREFIX_STATUS
 LOCAL_TUNNEL_V6
 TUN_SELECTION
 TUN_IF
@@ -258,7 +267,7 @@ test_start 'wrong tunnel mode makes readiness fail'
 assert_status 1
 test_start 'wrong-mode tunnel still emits discovered state'
 assert_contains "$(cat "$RUN_OUTPUT")" 'TUN_EXISTS=yes
-TUN_LOCAL_V6=2001:db8:1234:30:cb:71:2a00:0
+TUN_LOCAL_V6=2001:db8:1234:20:cb:71:2a00:0
 TUN_REMOTE_V6=2001:db8:ffff::1
 TUN_IPV4=203.0.113.42
 TUN_MTU=1460'
@@ -281,19 +290,31 @@ assert_status 1
 test_start 'missing route-selected source is explicit'
 assert_contains "$(cat "$RUN_OUTPUT")" 'BR_ROUTE_SOURCE_V6=none'
 
+for endpoint_mode in none multiple error; do
+  DIAG_SKIP_CONNECTIVITY=1 DIAG_ENDPOINT_PREFIX_MODE=$endpoint_mode run_diag
+  test_start "$endpoint_mode endpoint prefix selection makes readiness fail"
+  assert_status 1
+  test_start "$endpoint_mode endpoint prefix selection has a share-safe diagnostic"
+  assert_contains "$(cat "$RUN_OUTPUT")" 'ENDPOINT_PREFIX_STATUS=missing-or-ambiguous'
+  test_start "$endpoint_mode endpoint prefix selection never composes a tunnel endpoint"
+  assert_contains "$(cat "$RUN_OUTPUT")" 'LOCAL_TUNNEL_V6=none'
+done
+
 DIAG_SKIP_CONNECTIVITY=1 DIAG_NO_PD=1 run_diag
 test_start 'absence of PD candidates is diagnostic only'
 assert_status 0
 test_start 'absence of PD candidates has stable placeholder'
 assert_contains "$(cat "$RUN_OUTPUT")" 'PD_PREFIX_1=unknown'
 test_start 'PD absence does not alter composed endpoint'
-assert_contains "$(cat "$RUN_OUTPUT")" 'LOCAL_TUNNEL_V6=2001:0db8:1234:0030:00cb:0071:2a00:0000'
+assert_contains "$(cat "$RUN_OUTPUT")" 'LOCAL_TUNNEL_V6=2001:0db8:1234:0020:00cb:0071:2a00:0000'
 
 DIAG_SKIP_CONNECTIVITY=1 DIAG_FALLBACK_CHAINS=1 run_diag
-test_start 'missing UniFi chains fall back without creation'
-assert_contains "$(cat "$RUN_OUTPUT")" 'NAT_CHAIN=POSTROUTING
-V6_INPUT_CHAIN=INPUT'
-test_start 'fallback probes remain list-only'
+test_start 'missing UniFi hook parents make diagnostics not ready'
+assert_status 1
+test_start 'missing UniFi hook parents never fall back to global chains'
+assert_contains "$(cat "$RUN_OUTPUT")" 'NAT_CHAIN=missing
+V6_INPUT_CHAIN=missing'
+test_start 'missing-hook probes remain list-only'
 if grep -E ' (-A|-I|-D|-F|-N|-X)( |$)' "$TMP/calls.log"; then
   fail 'firewall mutation observed'
 else
@@ -330,7 +351,7 @@ test_start 'firewall snapshot visibly redacts URL credentials'
 assert_contains "$snapshot_output" 'MANGLE_RULE_2=-A UBIOS_FORWARD_IN_USER -m comment --comment v6plus:redact?user=[REDACTED]&pass=[REDACTED]'
 
 cat >"$STATE/last-provider-update.state" <<'EOF'
-LOCAL_V6=2001:0db8:1234:0030:00cb:0071:2a00:0000
+LOCAL_V6=2001:0db8:1234:0020:00cb:0071:2a00:0000
 SUCCEEDED_AT=1700000000
 HTTP_CODE=200
 EOF
@@ -349,7 +370,7 @@ EOF
 DIAG_SKIP_CONNECTIVITY=1 run_diag
 state_output=$(cat "$RUN_OUTPUT")
 test_start 'safe update state fields are parsed as data'
-assert_contains "$state_output" 'LAST_UPDATE_LOCAL_V6=2001:0db8:1234:0030:00cb:0071:2a00:0000
+assert_contains "$state_output" 'LAST_UPDATE_LOCAL_V6=2001:0db8:1234:0020:00cb:0071:2a00:0000
 LAST_UPDATE_SUCCEEDED_AT=1700000000
 LAST_UPDATE_HTTP_CODE=200'
 test_start 'diagnostics ignores unrelated config-directory state'
@@ -441,9 +462,10 @@ assert_status 0
 test_start 'discover derives candidate WAN device from BR route'
 assert_contains "$discover_output" 'BR_ROUTE_DEV=eth9
 WAN_IF=eth9'
-test_start 'discover derives and composes route-selected endpoint'
+test_start 'discover validates and composes the configured endpoint interface prefix'
 assert_contains "$discover_output" 'BR_ROUTE_SOURCE_V6=2001:0db8:1234:0030:abcd:0000:0000:0001
-LOCAL_TUNNEL_V6=2001:0db8:1234:0030:00cb:0071:2a00:0000'
+ENDPOINT_PREFIX_STATUS=unique
+LOCAL_TUNNEL_V6=2001:0db8:1234:0020:00cb:0071:2a00:0000'
 test_start 'discover selects the unique ipip6 tunnel whose remote matches BR'
 assert_contains "$discover_output" 'TUN_SELECTION=br-remote-match
 TUN_IF=ip6tnl7

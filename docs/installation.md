@@ -1,26 +1,32 @@
 # Installation
 
-この手順はファイル配置から手動検証までを段階的に進めます。途中で失敗した場合は次の段階へ進まないでください。
+この文書は配置の詳細です。初回導入または旧実装からの移行は、先に[UDM Pro導入・移行runbook](udm-pro-setup.md)を上から順に実行してください。途中で失敗した場合は次の段階へ進みません。
 
-## 1. 取得内容を確認する
+## 1. 管理PCで取得内容を固定する
 
-信頼できる端末でリポジトリを取得し、実行対象commitと差分を確認します。rootで実行されるため、未確認のforkやpatchをUDMへ直接コピーしないでください。
+信頼できる管理PCでリポジトリを取得し、実行対象commitと差分を確認します。UDMには`git`がない前提なので、review済みcommitを`git archive`し、SHA-256を付けてSCP転送します。
 
 ```sh
 git status --short --branch
 git log -1 --oneline
 git diff --check
+commit=$(git rev-parse HEAD)
+git archive --format=tar.gz --output "unifi-jpix-tunnel-repair-${commit}.tar.gz" "$commit"
+shasum -a 256 "unifi-jpix-tunnel-repair-${commit}.tar.gz"
+scp "unifi-jpix-tunnel-repair-${commit}.tar.gz" 'root@<UDM管理IP>:/data/'
 ```
+
+UDMで`sha256sum`を実行し、管理PCの値と完全一致してからroot-only staging directoryへ展開します。未commit差分はarchiveへ入らないため、実行予定差分が残る状態では転送しません。
 
 ## 2. Share-safe preflightを実行する
 
-インストールやconfig作成前に、UDM上で読み取り専用preflightを実行します。
+インストールやconfig作成前に、展開済みstaging directoryからUDM上で読み取り専用preflightを実行します。
 
 ```sh
-sudo ./scripts/unifi-jpix-tunnel-repair-preflight.sh
+/data/unifi-jpix-staging/scripts/unifi-jpix-tunnel-repair-preflight.sh
 ```
 
-終了statusは`ready-for-config`が`0`、`needs-attention`が`1`、使い方の誤りが`2`です。`PREFLIGHT_MODE=share-safe`がない出力は共有しないでください。
+終了statusは`ready-for-config`が`0`、`needs-attention`が`1`、使い方の誤りが`2`です。`PLATFORM_COMPATIBILITY=verified`、legacy backend、2つのparent jumpが`present`でなければ進みません。`PREFLIGHT_MODE=share-safe`がない出力は共有しないでください。
 
 ### UniFi OS 5のPD表現
 
@@ -77,18 +83,18 @@ sudo /data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-apply.sh st
 
 `status`が成功し、[Validation](validation.md)の対象LAN・対象外LAN確認が終わるまで自動化へ進まないでください。
 
-## 7. 自動化を有効にする
+## 7. 自動化gateを閉じたままにする
 
-手動適用、IPv4/IPv6、prefix変更、再起動、rollbackを確認した後だけ実行します。
+Issue #2のreview時点では、共有UniFiトンネルの再起動、reprovision、prefix変更、独立トンネル比較が未完了です。手動適用とrollbackが成功してもautomationを有効化しません。
 
 ```sh
-sudo systemctl daemon-reload
-sudo systemctl enable --now unifi-jpix-tunnel-repair-trigger.service unifi-jpix-tunnel-repair-watch.service unifi-jpix-tunnel-repair-update.timer
+sudo systemctl disable unifi-jpix-tunnel-repair-trigger.service unifi-jpix-tunnel-repair-watch.service unifi-jpix-tunnel-repair-update.timer
+sudo systemctl stop unifi-jpix-tunnel-repair-trigger.service unifi-jpix-tunnel-repair-watch.service unifi-jpix-tunnel-repair-update.timer unifi-jpix-tunnel-repair-update.service
 ```
 
 ## 8. 更新する
 
-新しいcommitを確認した後、同じインストーラーを再実行します。実configとstateは上書きされません。
+新しいcommitを管理PCでarchiveし、SHA-256を再照合した後、同じインストーラーを再実行します。実configとstateは上書きされません。
 
 ```sh
 sudo systemctl stop unifi-jpix-tunnel-repair-trigger.service unifi-jpix-tunnel-repair-watch.service unifi-jpix-tunnel-repair-update.timer unifi-jpix-tunnel-repair-update.service

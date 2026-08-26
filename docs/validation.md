@@ -6,7 +6,7 @@
 
 UDM Pro・UniFi OS 5系で、native IPv6、IPIP6トンネル候補、UniFi user chain、DHCPv6-PDのIA_PD処理とLANへのglobal `/64`展開を確認済みです。2026-08-26の外部接続試験ではJPIX判定`5999`（v6プラス固定IP）、IPv4、IPv6、フレッツ西日本到達性、v6プラス用試験が成功しました。
 
-この接続試験は現在の実機回線が動作しているbaselineです。このprojectの実config投入後のdry-run、手動apply、対象LANからの固定IPv4出口、prefix変更追従、再起動復帰、rollbackは未完了です。[Issue #1](https://github.com/shuuheyhey/unifi-jpix-tunnel-repair/issues/1)で結果を追跡します。
+この接続試験は現在の実機回線が動作しているbaselineです。Issue #2のP0/P1を反映した新schemaでのdry-run、手動apply、対象LANからの固定IPv4出口、provider通知、rollback、再applyは実機確認待ちです。prefix変更追従、再起動復帰、reprovision、独立トンネル比較も未完了です。[Issue #2](https://github.com/shuuheyhey/unifi-jpix-tunnel-repair/issues/2)で結果を追跡します。
 
 ## 外部接続判定をbaselineとして使う
 
@@ -29,11 +29,13 @@ sudo ./scripts/unifi-jpix-tunnel-repair-preflight.sh
 確認項目：
 
 - `PREFLIGHT_MODE=share-safe`
-- root、必須command、UniFi OS、Network packageが利用可能
+- rootと必須commandが利用可能
+- `PLATFORM_COMPATIBILITY=verified`かつ`XTABLES_BACKEND=legacy`
 - native IPv6 default routeとglobal addressが存在
 - aggregate PD routeまたはLAN bridge上のglobal `/64` evidenceが存在
 - readyなIPIP6 tunnel候補が1つ以上
 - UniFiのIPv4 NAT user chainとIPv6 input user chainが存在
+- 各user chainへ検証済み親chainから一意なjumpが存在
 
 `DHCPV6_PD_ROUTE=absent`でも、UniFi OS 5がLAN bridge向けglobal `/64`だけを展開している場合は`DHCPV6_PD_LAN64_EVIDENCE=present`になります。両方が`absent`なら中止し、[Troubleshooting](troubleshooting.md)の追加確認でPD成功を証明できるまで進まないでください。
 
@@ -47,6 +49,8 @@ sudo stat -c '%U:%G %a %n' /data/unifi-jpix-tunnel-repair/config /data/unifi-jpi
 - 3つの実configはroot所有、mode `0600`
 - symlinkではない
 - example value、未知key、重複keyが残っていない
+- `ENDPOINT_IF`にglobal kernel `/64`候補がexactに1つだけある
+- routed networkがRFC1918 canonical、connected route完全一致、non-overlapである
 
 ## 3. 診断
 
@@ -57,7 +61,9 @@ sudo /data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-diag.sh --f
 
 - stdoutが`DIAGNOSTIC_MODE=share-safe`を返し、完全addressやCIDRを含まない
 - 完全診断が新規mode `0600` fileとして作成される
-- BR route、WAN、route source、トンネルremote、local endpoint、MTUが契約と一致
+- BR route、WAN、route source、delegated `/64`由来のlocal endpoint、トンネルremote、MTUが契約と一致
+- `ENDPOINT_PREFIX_STATUS=unique`
+- user hook parentが一意で、global `POSTROUTING`や`INPUT`へfallbackしていない
 - 専用tableとrule priorityが既存用途と衝突しない
 
 完全診断は実機内だけで確認し、Issueへ貼らないでください。
@@ -79,6 +85,7 @@ sudo /data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-apply.sh --
 ```sh
 sudo /data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-apply.sh apply
 sudo /data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-apply.sh status
+sudo /data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-update.sh --force
 ```
 
 - `status`が成功
@@ -94,13 +101,15 @@ sudo /data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-apply.sh st
 - provider通知が必要な場合は、HTTPS成功後だけstateが更新される
 - provider responseやcredentialがjournalへ出ない
 
-## 7. 自動化・再起動・rollback
+## 7. rollback・再apply・未完了gate
 
-- trigger、watch、update timerがactiveになる
-- drift修復時以外に変更を繰り返さない
-- UDM再起動後にWAN、native IPv6、固定IPv4、自動化が復帰する
 - `off`で元のUniFiトンネルと通常経路へ復帰する
 - `off`後も対象外LANとnative IPv6が維持される
+- 旧実装を再applyしてbaselineへ戻せる
+- 旧実装を再びoffにし、新実装の手動apply、status、provider `--force`、通信確認を再現できる
+- trigger、watch、update timerはdisabled/inactiveのままである
+
+UDM再起動、UniFi reprovision、prefix変更、独立トンネル比較は別の承認と検証が必要です。それらが完了するまでautomationを有効化しません。
 
 ## 結果の共有
 

@@ -13,11 +13,12 @@
 | --- | --- | --- |
 | `WAN_IF` | BRへのIPv6 routeが選ぶWAN interface | 実機のrouteで確認 |
 | `TUN_IF` | UniFiが作成したBR一致トンネル | 独自作成しない |
+| `ENDPOINT_IF` | 契約IIDを載せるdelegated LAN `/64`のkernel routeを持つLAN bridge | bridgeとして存在し、global kernel `/64`がexact interface上で一意 |
 | `STATIC_V4` | 契約で割り当てられた固定IPv4 | 単一address、tunnelへ`/32`で設定 |
 | `BR_V6` | 契約資料のBR IPv6 | トンネルremoteと照合 |
 | `IID` | 固定IPサービス用interface identifier | 4組の16bit hexadecimal表記 |
-| `TUN_MTU` | トンネルMTU | `1280`〜`1500` |
-| `TCP_MSS` | clampするTCP MSS | `536`〜`1460` |
+| `TUN_MTU` | トンネルMTU | `1280`〜`1500`、かつ`TUN_MTU + 40 <= underlay MTU` |
+| `TCP_MSS` | clampするTCP MSS | `536`〜`1460`、かつ`TCP_MSS <= TUN_MTU - 40` |
 | `ROUTE_TABLE` | 対象LAN専用のIPv4 table | `1`〜`4294967295`、既存用途と重複不可 |
 | `RULE_PREF_BASE` | policy ruleの開始priority | `1`〜`32700`、対象LAN数を含む範囲が空いていること |
 | `WATCH_INTERVAL_SECONDS` | watchの検査間隔 | 1秒以上の整数 |
@@ -25,6 +26,8 @@
 | `OUTER_IPIP_ALLOW` | outer IPIP accept ruleの扱い | `auto`、`yes`、`no` |
 
 `STATIC_V4`は1個の固定IPv4だけを受け付け、常にtunnelへ`/32`で設定します。IPv4 prefix、address range、MAP-Eの共有IPv4やPSIDは表現できません。`BR_V6`と`IID`も契約情報として手動設定するため、HB46PP responseを取り込むinterfaceではありません。
+
+`WAN_IF`のroute source上位64bitをlocal endpointへ流用しません。WANのIA_NA prefixとLANへdelegationされたprefixは異なることがあります。local endpointは、LAN bridgeである`ENDPOINT_IF`の一意なglobal kernel `/64`と`IID`だけから合成します。WANや非bridge interfaceは指定できません。bridge自身にglobal addressが表示されなくてもkernel `/64` routeが存在する構成があります。
 
 ### `OUTER_IPIP_ALLOW`
 
@@ -41,7 +44,10 @@ bridge-interface private-ipv4-cidr
 ```
 
 - 固定IPv4経路へ送るLANだけを列挙します。
-- interface、CIDR、生成されるrule priorityの重複は拒否されます。
+- CIDRはRFC1918内のcanonical network addressだけを受理します。host bit、先頭zero、public CIDRを拒否します。
+- CIDRは指定interfaceのIPv4 connected routeと完全一致する必要があります。
+- interface、CIDR、生成されるrule priorityの重複と、対象CIDR同士のoverlapを拒否します。
+- policy ruleは`from CIDR iif IFACE lookup TABLE`の形で、sourceとingress interfaceの両方へ限定されます。
 - 対象外LANはこのprojectのpolicy routingやSNATへ入れません。
 - 実機のinterface名とCIDRを公開Issueへ貼り付けないでください。
 
@@ -95,3 +101,16 @@ sudo stat -c '%U:%G %a %n' /data/unifi-jpix-tunnel-repair/config /data/unifi-jpi
 ```
 
 期待値はdirectoryが`root:root 700`、各configが`root:root 600`です。config、state、完全診断はGitへ追加しないでください。
+
+## 値を決めるworksheet
+
+実値はこの文書やIssueへ書かず、UDM内のroot-only memoで次の順に確定します。
+
+1. 契約通知から固定IPv4、BR IPv6、IID、provider再設定情報を転記する。
+2. BRへのIPv6 routeから`WAN_IF`を確定する。
+3. `--discover`でBR remoteと一致するUniFi tunnelを一意にし、`TUN_IF`を確定する。
+4. UniFi LAN設定、bridge inventory、kernel routeを照合し、delegated global `/64`が一意なLAN bridgeを`ENDPOINT_IF`にする。
+5. underlay link MTUから`TUN_MTU`を決め、IPv6 outer header 40 bytesが収まることを確認する。
+6. `TCP_MSS`がtunnel MTUからIPv4 header 40 bytesを引いた値以下であることを確認する。
+7. 対象LANだけを列挙し、connected route完全一致とnon-overlapを確認する。
+8. route tableと連続するrule priorityが既存用途と重複しないことを確認する。

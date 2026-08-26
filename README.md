@@ -15,7 +15,7 @@ UniFi Dream Machine Pro（UDM Pro）で、UniFiが生成したトンネルを補
 | IPv4品目 | 固定IPv4 1個。トンネルへ単一`/32`を設定し、対象LANをそのアドレスへSNAT |
 | IPv4 over IPv6方式 | 固定IP用BRとのIPIPトンネル。IPv6のNext HeaderはIPv4を示すProtocol 4 |
 | 機器 | UDM Pro |
-| OS・IPv6構成 | UniFi OS 5系、現在の実機で確認したDHCPv6-PD構成 |
+| OS・IPv6構成 | `config/verified-platforms.conf`に完全一致するtupleと、現在の実機で確認したDHCPv6-PD構成 |
 | トンネル所有者 | UniFiが作成済みの管理トンネルを補正。独立トンネルは作成しない |
 
 ### 対応していないもの
@@ -34,7 +34,8 @@ IPIPというデータ転送方式が同じでも、JPIX固定IPとHB46PP対応I
 - UDM Pro・UniFi OS 5系でshare-safe preflightを実行し、native IPv6、UniFi管理トンネル候補、UniFi user chain、DHCPv6-PDの動作を確認しました。
 - UniFi OS 5の実機では、DHCPv6-PDが動作していてもaggregate routeを残さず、LAN bridge向け`/64`の`proto kernel` routeだけを展開する場合があります。preflightはこの状態を`DHCPV6_PD_ROUTE=absent`、`DHCPV6_PD_LAN64_EVIDENCE=present`として区別し、PD成立の証拠として扱います。
 - 2026-08-26の実機接続試験では、JPIX判定`5999`（v6プラス固定IP）、IPv4、IPv6、フレッツ西日本到達性、v6プラス用試験が成功しました。これはその時点の回線状態を確認した結果であり、このツールによる修復成功を単独で証明するものではありません。[接続判定ページの使い方と読み方](docs/service-and-protocols.md#9-jpnejpix-ipv4ipv6接続判定ページ)も確認してください。
-- このツールの実configを使ったdry-run、手動apply、prefix変更追従、再起動復帰、ロールバックは未完了です。進捗は[Issue #1](https://github.com/shuuheyhey/unifi-jpix-tunnel-repair/issues/1)で管理します。
+- Issue #2のreviewを受け、endpointは明示したdelegated-prefix interfaceの一意なkernel `/64`から生成し、policy ruleはsource CIDRとingress interfaceの両方へ限定しました。exact platform、UniFi hook parent、legacy backend、MTU/MSS、tunnel attributeもmutation前に検査します。
+- 新schemaでの手動dry-run、apply、provider通知、rollback、再applyは実機確認待ちです。再起動、reprovision、prefix変更、独立トンネル比較も未完了であり、automationは有効化しません。進捗は[Issue #2](https://github.com/shuuheyhey/unifi-jpix-tunnel-repair/issues/2)で管理します。
 
 実機検証が完了するまで、検証環境以外へ適用しないでください。
 
@@ -56,7 +57,7 @@ IPIPというデータ転送方式が同じでも、JPIX固定IPとHB46PP対応I
 ## 対象
 
 - UDM Pro
-- UniFi OS 5系。各バージョンで実機確認が必要
+- exact verified tuple: UniFi OS、UniFi Network、kernel、iproute2、iptables/ip6tables backendが`config/verified-platforms.conf`の1行へ完全一致
 - JPIX「v6プラス」固定IPサービスの1 IP品目
 - ひかり電話なしのDHCPv6-PD構成
 - UniFiがBR向けIPIP6トンネルを生成済みの環境
@@ -65,31 +66,25 @@ IPIPというデータ転送方式が同じでも、JPIX固定IPとHB46PP対応I
 
 ## 安全な導入順序
 
-1. [構成と安全境界](docs/architecture.md)を確認します。
-2. UDM上でshare-safe preflightを実行します。
-3. [設定リファレンス](docs/configuration.md)に沿って、実値をGit管理外へ保存します。
-4. [インストール手順](docs/installation.md)でファイルだけを配置します。
-5. 共有診断、完全診断、dry-run、手動applyを順番に実行します。
-6. [検証チェックリスト](docs/validation.md)を完了します。
-7. [ロールバック](docs/rollback.md)を実際に試験してから自動化を有効にします。
+1. 最初に[UDM Pro導入・移行runbook](docs/udm-pro-setup.md)を上から順に実行します。
+2. [構成と安全境界](docs/architecture.md)と[設定リファレンス](docs/configuration.md)で値の意味を確認します。
+3. UDM上でshare-safe preflight、`--discover`、完全診断、dry-runを順番に合格させます。
+4. timed recoveryを予約してから、競合する旧automationを停止し、手動apply、provider `--force`、通信確認を行います。
+5. [ロールバック](docs/rollback.md)を実測し、再applyまで確認します。
+6. 再起動、reprovision、prefix変更、独立トンネル比較が未完了の間はautomationを有効化しません。
 
-## 最小コマンド
+## 最初のコマンド
 
 ```sh
 sudo ./scripts/unifi-jpix-tunnel-repair-preflight.sh
-sudo ./scripts/install.sh
-sudo install -m 600 config/gateway.conf.example /data/unifi-jpix-tunnel-repair/config/gateway.conf
-sudo install -m 600 config/routed-networks.conf.example /data/unifi-jpix-tunnel-repair/config/routed-networks.conf
-sudo install -m 600 config/provider-update.conf.example /data/unifi-jpix-tunnel-repair/config/provider-update.conf
-sudo /data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-diag.sh
-sudo /data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-apply.sh --dry-run apply
 ```
 
-preflightと通常診断のstdoutは共有安全です。完全診断、設定ファイル、state、provider responseは公開Issueへ貼り付けないでください。例ファイルはsynthetic valueであり、そのまま実機へ適用できません。
+ここで`ready-for-config`になった後も、READMEの断片だけでapplyへ進まず、[runbook](docs/udm-pro-setup.md)のarchive/SHA-256/SCP、競合確認、timed recovery、`--discover`から続けてください。preflightと通常診断のstdoutは共有安全です。完全診断、設定ファイル、state、provider responseは公開Issueへ貼り付けないでください。
 
 ## ドキュメント
 
 - [Architecture](docs/architecture.md)
+- [UDM Pro setup and migration runbook](docs/udm-pro-setup.md)
 - [Service and protocol guide](docs/service-and-protocols.md)
 - [Configuration](docs/configuration.md)
 - [Installation](docs/installation.md)
@@ -102,7 +97,7 @@ preflightと通常診断のstdoutは共有安全です。完全診断、設定�
 
 ## English summary
 
-An unofficial and experimental POSIX-shell implementation for one static IPv4 address on JPIX's v6 Plus static-IP service, using a UniFi-managed tunnel on UDM Pro. It does not support ordinary MAP-E v6 Plus, multi-address static-IP plans, HB46PP, other VNE services, or standalone tunnel creation. It installs inertly, validates privileged files before reading them, defaults provider updates to HTTPS, and emits share-safe preflight and diagnostic output. Live validation is still in progress and is required before production use.
+An unofficial and experimental POSIX-shell implementation for one static IPv4 address on JPIX's v6 Plus static-IP service, using a UniFi-managed tunnel on UDM Pro. It does not support ordinary MAP-E v6 Plus, multi-address static-IP plans, HB46PP, other VNE services, or standalone tunnel creation. It installs inertly, validates an exact platform tuple and delegated LAN /64 before mutation, source-scopes policy rules, forbids global firewall-chain fallback, and emits share-safe preflight and diagnostic output. Live migration, reboot, reprovision, prefix-change and standalone-tunnel comparison remain incomplete; automation must stay disabled.
 
 ## License
 

@@ -21,8 +21,8 @@ trap 'rm -rf "$TMP"' EXIT HUP INT TERM
 mkdir -p "$TMP"
 
 UPDATE_PATH=$ROOT/tests/stubs/update:/opt/homebrew/bin:/usr/bin:/bin
-LOCAL_V6=2001:0db8:1234:0030:00cb:0071:2a00:0000
-REDACTED_V6=2001:0DB8:1234:0030::/64
+LOCAL_V6=2001:0db8:1234:0020:00cb:0071:2a00:0000
+REDACTED_V6=2001:0DB8:1234:0020::/64
 TEST_USERNAME='user+name@example.invalid'
 TEST_PASSWORD='p&a ss%word'
 
@@ -38,6 +38,7 @@ write_main_config() {
   cat >"$CONFIG/gateway.conf" <<EOF
 WAN_IF=eth9
 TUN_IF=ip6tnl1
+ENDPOINT_IF=br0
 STATIC_V4=203.0.113.42
 BR_V6=2001:db8:ffff::1
 IID=00cb:0071:2a00:0000
@@ -179,6 +180,15 @@ assert_no_shell_diagnostic() {
     pass
   fi
 }
+
+# The provider notification must use the same explicit delegated endpoint as apply,
+# even when BR route source belongs to another /64.
+new_case delegated-endpoint-source
+IP_ADDR_MODE=endpoint-present
+export IP_ADDR_MODE
+queue_response 0 200 ' endpoint source success '
+run_update --force
+assert_run_success 'provider update uses ENDPOINT_IF instead of BR route source'
 
 # A successful forced request accepts realistic compressed kernel output, binds the exact
 # expanded endpoint, and keeps secrets off argv and outputs.
@@ -738,6 +748,8 @@ done
 
 new_case endpoint-environment-secrecy
 SOURCE_V6=sentinel-source-v6
+ROUTE_SOURCE=sentinel-route-source
+ENDPOINT_PREFIX=sentinel-endpoint-prefix
 LOCAL_V6=sentinel-local-v6
 expanded_endpoint=sentinel-expanded-endpoint
 REDACTED_ENDPOINT=sentinel-redacted-endpoint
@@ -754,10 +766,23 @@ v6_compose_source_full=sentinel-compose-source-full
 v6_compose_iid_full=sentinel-compose-iid-full
 v6_compose_source_prefix=sentinel-compose-source-prefix
 v6_compose_iid_suffix=sentinel-compose-iid-suffix
-export SOURCE_V6 LOCAL_V6 expanded_endpoint REDACTED_ENDPOINT NOW
+v6_endpoint_iface=sentinel-endpoint-iface
+v6_endpoint_bridges=sentinel-endpoint-bridges
+v6_endpoint_bridge_count=sentinel-endpoint-bridge-count
+v6_endpoint_routes=sentinel-endpoint-routes
+v6_endpoint_candidates=sentinel-endpoint-candidates
+v6_endpoint_candidate=sentinel-endpoint-candidate
+v6_endpoint_expanded=sentinel-endpoint-expanded
+v6_endpoint_prefix=sentinel-endpoint-helper-prefix
+v6_endpoint_count=sentinel-endpoint-count
+v6_endpoint_result=sentinel-endpoint-result
+export SOURCE_V6 ROUTE_SOURCE ENDPOINT_PREFIX LOCAL_V6 expanded_endpoint REDACTED_ENDPOINT NOW
 export source_full iid_full iid output source_prefix iid_suffix v6_route_output
 export v6_compose_iid v6_compose_source_full v6_compose_iid_full
 export v6_compose_source_prefix v6_compose_iid_suffix
+export v6_endpoint_iface v6_endpoint_bridges v6_endpoint_bridge_count
+export v6_endpoint_routes v6_endpoint_candidates v6_endpoint_candidate
+export v6_endpoint_expanded v6_endpoint_prefix v6_endpoint_count v6_endpoint_result
 unset V6PLUS_NOW
 STUB_DATE_VALUE=1700000000
 export STUB_DATE_VALUE
@@ -769,13 +794,18 @@ for child_name in ip awk cut tr date logger curl sleep stat grep sed; do
   test_start "$child_name child ran during endpoint environment test"
   assert_contains "$(cat "$CHILD_ENV_LOG")" "--- $child_name ---"
 done
-for forbidden_environment_value in sentinel-source-v6 sentinel-local-v6 sentinel-expanded-endpoint \
+for forbidden_environment_value in sentinel-source-v6 sentinel-route-source sentinel-endpoint-prefix \
+  sentinel-local-v6 sentinel-expanded-endpoint \
   sentinel-redacted-endpoint sentinel-now sentinel-source-full sentinel-iid-full sentinel-iid \
   sentinel-output sentinel-source-prefix sentinel-iid-suffix sentinel-route-output \
   sentinel-compose-iid sentinel-compose-source-full sentinel-compose-iid-full \
   sentinel-compose-source-prefix sentinel-compose-iid-suffix \
+  sentinel-endpoint-iface sentinel-endpoint-bridges sentinel-endpoint-bridge-count \
+  sentinel-endpoint-routes sentinel-endpoint-candidates \
+  sentinel-endpoint-candidate sentinel-endpoint-expanded sentinel-endpoint-helper-prefix \
+  sentinel-endpoint-count sentinel-endpoint-result \
   2001:db8:1234:30:abcd::1 2001:0db8:1234:0030:abcd:0000:0000:0001 \
-  2001:0db8:1234:0030:00cb:0071:2a00:0000; do
+  2001:0db8:1234:0020:00cb:0071:2a00:0000; do
   test_start "child environments exclude endpoint value <$forbidden_environment_value>"
   if grep -F "$forbidden_environment_value" "$CHILD_ENV_LOG" >/dev/null 2>&1; then
     fail 'endpoint value leaked through inherited environment'
@@ -785,14 +815,17 @@ for forbidden_environment_value in sentinel-source-v6 sentinel-local-v6 sentinel
 done
 test_start 'curl still binds the computed exact endpoint after export cleanup'
 assert_contains "$(nul_args "$CURL_ARGV_LOG")" "--interface
-2001:0db8:1234:0030:00cb:0071:2a00:0000"
+2001:0db8:1234:0020:00cb:0071:2a00:0000"
 test_start 'private state still records the computed exact endpoint after export cleanup'
-assert_contains "$(cat "$STATE/last-provider-update.state")" 'LOCAL_V6=2001:0db8:1234:0030:00cb:0071:2a00:0000'
-unset SOURCE_V6 LOCAL_V6 expanded_endpoint REDACTED_ENDPOINT NOW
+assert_contains "$(cat "$STATE/last-provider-update.state")" 'LOCAL_V6=2001:0db8:1234:0020:00cb:0071:2a00:0000'
+unset SOURCE_V6 ROUTE_SOURCE ENDPOINT_PREFIX LOCAL_V6 expanded_endpoint REDACTED_ENDPOINT NOW
 unset source_full iid_full iid output source_prefix iid_suffix v6_route_output
 unset v6_compose_iid v6_compose_source_full v6_compose_iid_full
 unset v6_compose_source_prefix v6_compose_iid_suffix
-LOCAL_V6=2001:0db8:1234:0030:00cb:0071:2a00:0000
+unset v6_endpoint_iface v6_endpoint_bridges v6_endpoint_bridge_count
+unset v6_endpoint_routes v6_endpoint_candidates v6_endpoint_candidate
+unset v6_endpoint_expanded v6_endpoint_prefix v6_endpoint_count v6_endpoint_result
+LOCAL_V6=2001:0db8:1234:0020:00cb:0071:2a00:0000
 
 # Exact source presence, status parsing, locking, cleanup, and usage are fail-closed.
 new_case missing-source

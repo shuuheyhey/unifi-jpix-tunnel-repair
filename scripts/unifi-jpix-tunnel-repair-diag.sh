@@ -5,6 +5,7 @@ ROOT=${V6PLUS_ROOT:-/data/unifi-jpix-tunnel-repair}
 CONFIG_DIR=$ROOT/config
 DIAG_SKIP_CONNECTIVITY=${DIAG_SKIP_CONNECTIVITY:-0}
 VERSION_FILE=${V6PLUS_VERSION_FILE:-/usr/lib/version}
+NETWORK_VERSION_FILE=${V6PLUS_NETWORK_VERSION_FILE:-/usr/lib/unifi/webapps/ROOT/app-unifi/.version}
 DISCOVER=0
 FULL_OUTPUT=
 full_output_seen=0
@@ -115,7 +116,7 @@ fi
 discover_load_main() {
   discover_file=$1
   [ -f "$discover_file" ] || return 1
-  unset V6_BR_V6 V6_IID V6_TUN_IF
+  unset V6_BR_V6 V6_IID V6_TUN_IF V6_ENDPOINT_IF
   discover_seen='|'
   while IFS= read -r discover_line || [ -n "$discover_line" ]; do
     case $discover_line in
@@ -128,20 +129,23 @@ discover_load_main() {
     case $discover_key in
       WAN_IF|STATIC_V4|TUN_MTU|TCP_MSS|ROUTE_TABLE|RULE_PREF_BASE|WATCH_INTERVAL_SECONDS|UPDATE_INTERVAL_SECONDS|OUTER_IPIP_ALLOW)
         ;;
-      BR_V6|IID|TUN_IF)
+      BR_V6|IID|TUN_IF|ENDPOINT_IF)
         case $discover_seen in *"|$discover_key|"*) return 1 ;; esac
         discover_seen=$discover_seen$discover_key'|'
         case $discover_key in
           BR_V6) V6_BR_V6=$discover_value ;;
           IID) V6_IID=$discover_value ;;
           TUN_IF) V6_TUN_IF=$discover_value ;;
+          ENDPOINT_IF) V6_ENDPOINT_IF=$discover_value ;;
         esac
         ;;
       *) return 1 ;;
     esac
   done <"$discover_file"
-  [ "${V6_BR_V6+x}" = x ] && [ "${V6_IID+x}" = x ] || return 1
+  [ "${V6_BR_V6+x}" = x ] && [ "${V6_IID+x}" = x ] &&
+    [ "${V6_ENDPOINT_IF+x}" = x ] || return 1
   v6_is_ipv6 "$V6_BR_V6" || return 1
+  v6_is_iface_value "$V6_ENDPOINT_IF" || return 1
   if [ "${V6_TUN_IF+x}" = x ]; then
     v6_is_iface_value "$V6_TUN_IF" || return 1
   fi
@@ -265,8 +269,8 @@ fi
 [ -z "$unifi_os_candidate" ] || unifi_os_version=$(sanitize_line "$unifi_os_candidate")
 
 unifi_network_version=unknown
-if command -v dpkg-query >/dev/null 2>&1; then
-  unifi_network_candidate=$(dpkg-query -W -f='${Version}\n' unifi 2>/dev/null | first_line || :)
+if [ -r "$NETWORK_VERSION_FILE" ]; then
+  unifi_network_candidate=$(first_line <"$NETWORK_VERSION_FILE" || :)
   [ -z "$unifi_network_candidate" ] || unifi_network_version=$(sanitize_line "$unifi_network_candidate")
 fi
 
@@ -354,9 +358,21 @@ if [ -n "$route_source_raw" ]; then
 fi
 [ "$route_source" != none ] || readiness=1
 
+endpoint_prefix=none
+endpoint_prefix_status=missing-or-ambiguous
+endpoint_prefix_raw=$(v6_endpoint_prefix64 "$V6_ENDPOINT_IF" 2>/dev/null || :)
+if [ -n "$endpoint_prefix_raw" ]; then
+  endpoint_prefix_candidate=$(v6_expand_ipv6 "$endpoint_prefix_raw" 2>/dev/null || :)
+  if [ -n "$endpoint_prefix_candidate" ]; then
+    endpoint_prefix=$endpoint_prefix_candidate
+    endpoint_prefix_status=unique
+  fi
+fi
+[ "$endpoint_prefix" != none ] || readiness=1
+
 local_tunnel=none
-if [ "$route_source" != none ]; then
-  local_tunnel_candidate=$(v6_compose_local_v6 "$route_source" "$V6_IID" 2>/dev/null || :)
+if [ "$endpoint_prefix" != none ]; then
+  local_tunnel_candidate=$(v6_compose_local_v6 "$endpoint_prefix" "$V6_IID" 2>/dev/null || :)
   [ -z "$local_tunnel_candidate" ] || local_tunnel=$local_tunnel_candidate
 fi
 [ "$local_tunnel" != none ] || readiness=1
@@ -406,24 +422,45 @@ if [ "$tunnel_exists" = yes ]; then
   if v6_is_uint "$tunnel_mtu_candidate"; then tunnel_mtu=$tunnel_mtu_candidate; fi
   [ "$tunnel_local" != none ] && [ "$tunnel_remote" != none ] &&
     [ "$tunnel_ipv4" != none ] && [ "$tunnel_mtu" != none ] || readiness=1
+  tunnel_local_expanded=$(v6_expand_ipv6 "$tunnel_local" 2>/dev/null || :)
+  tunnel_remote_expanded=$(v6_expand_ipv6 "$tunnel_remote" 2>/dev/null || :)
+  expected_tunnel_remote=$(v6_expand_ipv6 "$V6_BR_V6" 2>/dev/null || :)
+  [ -n "$tunnel_local_expanded" ] && [ "$tunnel_local_expanded" = "$local_tunnel" ] || readiness=1
+  [ -n "$tunnel_remote_expanded" ] && [ "$tunnel_remote_expanded" = "$expected_tunnel_remote" ] || readiness=1
 fi
 
 router_ipv4_route=$(ip -4 route get 192.0.2.1 2>/dev/null | first_line || :)
 [ -n "$router_ipv4_route" ] || router_ipv4_route=none
 router_ipv4_route=$(sanitize_line "$router_ipv4_route")
 
-if iptables -t nat -S UBIOS_POSTROUTING_USER_HOOK >/dev/null 2>&1; then
+nat_parent=$(iptables -t nat -S UBIOS_POSTROUTING_JUMP 2>/dev/null || :)
+nat_parent_count=$(printf '%s\n' "$nat_parent" | awk '
+  NF == 4 && $1 == "-A" && $2 == "UBIOS_POSTROUTING_JUMP" &&
+    $3 == "-j" && $4 == "UBIOS_POSTROUTING_USER_HOOK" { count++ }
+  END { print count + 0 }
+')
+if iptables -t nat -S UBIOS_POSTROUTING_USER_HOOK >/dev/null 2>&1 &&
+   [ "$nat_parent_count" -eq 1 ]; then
   nat_chain=UBIOS_POSTROUTING_USER_HOOK
 else
-  nat_chain=POSTROUTING
+  nat_chain=missing
+  readiness=1
 fi
 nat_snapshot=$(iptables -t nat -S "$nat_chain" 2>/dev/null | awk '/v6plus:/' || :)
 nat_snapshot=$(sanitize_snapshot "$nat_snapshot")
 
-if ip6tables -S UBIOS_INPUT_USER_HOOK >/dev/null 2>&1; then
+v6_input_parent=$(ip6tables -S UBIOS_INPUT_JUMP 2>/dev/null || :)
+v6_input_parent_count=$(printf '%s\n' "$v6_input_parent" | awk '
+  NF == 4 && $1 == "-A" && $2 == "UBIOS_INPUT_JUMP" &&
+    $3 == "-j" && $4 == "UBIOS_INPUT_USER_HOOK" { count++ }
+  END { print count + 0 }
+')
+if ip6tables -S UBIOS_INPUT_USER_HOOK >/dev/null 2>&1 &&
+   [ "$v6_input_parent_count" -eq 1 ]; then
   v6_input_chain=UBIOS_INPUT_USER_HOOK
 else
-  v6_input_chain=INPUT
+  v6_input_chain=missing
+  readiness=1
 fi
 v6_input_snapshot=$(ip6tables -S "$v6_input_chain" 2>/dev/null || :)
 outer_exact=no
@@ -538,6 +575,7 @@ printf 'WAN_SPEED_MBIT=%s\n' "$wan_speed"
 printf 'WAN_GLOBAL_V6=%s\n' "$wan_global"
 emit_numbered PD_PREFIX "$pd_candidates" unknown
 printf 'BR_ROUTE_SOURCE_V6=%s\n' "$route_source"
+printf 'ENDPOINT_PREFIX_STATUS=%s\n' "$endpoint_prefix_status"
 printf 'LOCAL_TUNNEL_V6=%s\n' "$local_tunnel"
 printf 'TUN_SELECTION=%s\n' "$tunnel_selection"
 printf 'TUN_IF=%s\n' "$V6_TUN_IF"

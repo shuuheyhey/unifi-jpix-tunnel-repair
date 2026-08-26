@@ -4,7 +4,11 @@
 
 ## Preflightが`RESULT=needs-attention`
 
-`missing`または`absent`の項目を上から確認します。root、依存command、UniFi OS、Network package、native IPv6、DHCPv6-PD、IPIP6 tunnel、UniFi user chainの順に切り分けます。
+`missing`または`absent`の項目を上から確認します。root、依存command、exact platform tuple、legacy backend、native IPv6、DHCPv6-PD、IPIP6 tunnel、UniFi user chain、親jumpの順に切り分けます。
+
+### `PLATFORM_COMPATIBILITY=unknown`
+
+UniFi OS、`/usr/lib/unifi/webapps/ROOT/app-unifi/.version`のNetwork version、kernel、iproute2、iptables/ip6tables backendのどれかが`config/verified-platforms.conf`と完全一致していません。古いdpkg recordの有無や「UniFi OS 5系だから」という推測で通過させません。upgrade後は新tupleをread-only調査し、reviewと実機検証を経てmatrixを更新します。
 
 ### PD evidenceが両方`absent`
 
@@ -27,9 +31,13 @@
 - mode、remote、localが存在する候補を確認する
 - 独自トンネルを追加して回避しない
 
-### UniFi user chainが`absent`
+### UniFi user chainまたはparent jumpが`absent`
 
-UniFi OS updateでchain名やnetfilter backendが変わった可能性があります。applyへ進まず、OS系列、Network version、chain inventoryを実機内で確認してください。既存chainを手動作成しないでください。
+UniFi OS updateでchain名、親chain接続、netfilter backendが変わった可能性があります。applyへ進まず、exact version、backend、chain inventoryを実機内で確認してください。既存chainを手動作成せず、global `POSTROUTING`や`INPUT`へfallbackしません。
+
+### `ENDPOINT_PREFIX_STATUS=missing-or-ambiguous`
+
+設定した`ENDPOINT_IF`にglobal kernel `/64`が0件または複数あります。WAN/BR route sourceの上位64bitで代用しません。UniFi LAN設定、delegated prefix、exact interfaceのkernel routeを照合し、一意にならない場合は停止します。
 
 ## `invalid ... configuration`
 

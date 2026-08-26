@@ -6,6 +6,9 @@ export LC_ALL
 
 PROJECT_ROOT=${PREFLIGHT_PROJECT_ROOT:-/data/unifi-jpix-tunnel-repair}
 VERSION_FILE=${PREFLIGHT_VERSION_FILE:-/usr/lib/version}
+NETWORK_VERSION_FILE=${PREFLIGHT_NETWORK_VERSION_FILE:-/usr/lib/unifi/webapps/ROOT/app-unifi/.version}
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd -P)
+PLATFORM_MATRIX=${PREFLIGHT_PLATFORM_MATRIX:-$SCRIPT_DIR/../config/verified-platforms.conf}
 
 if [ "$#" -ne 0 ]; then
   printf 'usage: %s\n' "${0##*/}" >&2
@@ -48,18 +51,48 @@ if [ -z "$unifi_os_candidate" ] && [ -r "$VERSION_FILE" ]; then
   IFS= read -r unifi_os_candidate <"$VERSION_FILE" || :
 fi
 case $unifi_os_candidate in
-  5.*) unifi_os_compatibility=target ;;
+  5.1.31) unifi_os_compatibility=target ;;
   '') unifi_os_compatibility=unknown; readiness=1 ;;
   *) unifi_os_compatibility=outside-target; readiness=1 ;;
 esac
 
-unifi_network_package=absent
-if command -v dpkg-query >/dev/null 2>&1 &&
-   dpkg-query -W -f='${Status}\n' unifi >/dev/null 2>&1; then
-  unifi_network_package=present
-else
-  readiness=1
+unifi_network_candidate=
+if [ -r "$NETWORK_VERSION_FILE" ]; then
+  IFS= read -r unifi_network_candidate <"$NETWORK_VERSION_FILE" || :
 fi
+kernel_candidate=$(uname -r 2>/dev/null || :)
+iproute_candidate=$(ip -Version 2>/dev/null | awk 'NR == 1 {
+  for (i = 1; i <= NF; i++) if ($i ~ /^iproute2-/) {
+    sub(/^iproute2-/, "", $i); sub(/,$/, "", $i); print $i; exit
+  }
+}' || :)
+iptables_backend=$(iptables --version 2>/dev/null | awk 'NR == 1 {
+  if ($0 ~ /\(legacy\)/) print "legacy"; else if ($0 ~ /\(nf_tables\)/) print "nf_tables"
+}' || :)
+ip6tables_backend=$(ip6tables --version 2>/dev/null | awk 'NR == 1 {
+  if ($0 ~ /\(legacy\)/) print "legacy"; else if ($0 ~ /\(nf_tables\)/) print "nf_tables"
+}' || :)
+
+platform_compatibility=unknown
+unifi_network_version=unknown
+xtables_backend=unsupported
+if [ -n "$unifi_network_candidate" ]; then unifi_network_version=unverified; fi
+if [ "$iptables_backend" = legacy ] && [ "$ip6tables_backend" = legacy ]; then xtables_backend=legacy; fi
+if [ -r "$PLATFORM_MATRIX" ]; then
+  platform_matches=$(awk -F'|' -v os="$unifi_os_candidate" -v network="$unifi_network_candidate" \
+    -v kernel="$kernel_candidate" -v iproute="$iproute_candidate" \
+    -v ipt="$iptables_backend" -v ip6t="$ip6tables_backend" '
+      /^[[:space:]]*#/ || NF == 0 { next }
+      NF == 6 && $1 == os && $2 == network && $3 == kernel && $4 == iproute &&
+        $5 == ipt && $6 == ip6t { count++ }
+      END { print count + 0 }
+    ' "$PLATFORM_MATRIX" 2>/dev/null || printf '0\n')
+  if [ "$platform_matches" -eq 1 ]; then
+    platform_compatibility=verified
+    unifi_network_version=verified
+  fi
+fi
+[ "$platform_compatibility" = verified ] || readiness=1
 
 ipv6_default_route=absent
 ipv6_global_address=absent
@@ -166,10 +199,36 @@ else
   readiness=1
 fi
 
+unifi_nat_parent_jump=absent
+if [ "$dependency_iptables" = present ]; then
+  nat_parent_output=$(iptables -t nat -S UBIOS_POSTROUTING_JUMP 2>/dev/null || :)
+  nat_parent_count=$(printf '%s\n' "$nat_parent_output" | awk '
+    NF == 4 && $1 == "-A" && $2 == "UBIOS_POSTROUTING_JUMP" &&
+      $3 == "-j" && $4 == "UBIOS_POSTROUTING_USER_HOOK" { count++ }
+    END { print count + 0 }
+  ')
+  if [ "$nat_parent_count" -eq 1 ]; then unifi_nat_parent_jump=present; else readiness=1; fi
+else
+  readiness=1
+fi
+
 unifi_ipv6_input_user_chain=absent
 if [ "$dependency_ip6tables" = present ] &&
    ip6tables -S UBIOS_INPUT_USER_HOOK >/dev/null 2>&1; then
   unifi_ipv6_input_user_chain=present
+else
+  readiness=1
+fi
+
+unifi_ipv6_input_parent_jump=absent
+if [ "$dependency_ip6tables" = present ]; then
+  v6_parent_output=$(ip6tables -S UBIOS_INPUT_JUMP 2>/dev/null || :)
+  v6_parent_count=$(printf '%s\n' "$v6_parent_output" | awk '
+    NF == 4 && $1 == "-A" && $2 == "UBIOS_INPUT_JUMP" &&
+      $3 == "-j" && $4 == "UBIOS_INPUT_USER_HOOK" { count++ }
+    END { print count + 0 }
+  ')
+  if [ "$v6_parent_count" -eq 1 ]; then unifi_ipv6_input_parent_jump=present; else readiness=1; fi
 else
   readiness=1
 fi
@@ -191,7 +250,9 @@ printf 'DEPENDENCY_ip6tables=%s\n' "$dependency_ip6tables"
 printf 'DEPENDENCY_curl=%s\n' "$dependency_curl"
 printf 'DEPENDENCY_systemctl=%s\n' "$dependency_systemctl"
 printf 'UNIFI_OS_COMPATIBILITY=%s\n' "$unifi_os_compatibility"
-printf 'UNIFI_NETWORK_PACKAGE=%s\n' "$unifi_network_package"
+printf 'UNIFI_NETWORK_VERSION=%s\n' "$unifi_network_version"
+printf 'PLATFORM_COMPATIBILITY=%s\n' "$platform_compatibility"
+printf 'XTABLES_BACKEND=%s\n' "$xtables_backend"
 printf 'IPV6_DEFAULT_ROUTE=%s\n' "$ipv6_default_route"
 printf 'IPV6_GLOBAL_ADDRESS=%s\n' "$ipv6_global_address"
 printf 'DHCPV6_PD_ROUTE=%s\n' "$dhcpv6_pd_route"
@@ -199,7 +260,9 @@ printf 'DHCPV6_PD_LAN64_EVIDENCE=%s\n' "$dhcpv6_pd_lan64_evidence"
 printf 'IPIP6_TUNNEL_CANDIDATE_COUNT=%s\n' "$tunnel_candidate_count"
 printf 'IPIP6_TUNNEL_READY_COUNT=%s\n' "$tunnel_ready_count"
 printf 'UNIFI_NAT_USER_CHAIN=%s\n' "$unifi_nat_user_chain"
+printf 'UNIFI_NAT_PARENT_JUMP=%s\n' "$unifi_nat_parent_jump"
 printf 'UNIFI_IPV6_INPUT_USER_CHAIN=%s\n' "$unifi_ipv6_input_user_chain"
+printf 'UNIFI_IPV6_INPUT_PARENT_JUMP=%s\n' "$unifi_ipv6_input_parent_jump"
 printf 'PROJECT_INSTALLATION=%s\n' "$project_installation"
 printf 'RESULT=%s\n' "$result"
 exit "$readiness"

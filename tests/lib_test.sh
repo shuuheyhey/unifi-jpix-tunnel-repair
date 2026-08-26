@@ -16,6 +16,7 @@ chmod 700 "$TMP/config"
 cat >"$TMP/config/gateway.conf" <<'EOF'
 WAN_IF=eth9
 TUN_IF=ip6tnl1
+ENDPOINT_IF=br0
 STATIC_V4=203.0.113.42
 BR_V6=2001:db8:ffff::1
 IID=00cb:0071:2a00:0000
@@ -37,8 +38,44 @@ EOF
 
 cat >"$TMP/bin/ip" <<'EOF'
 #!/bin/sh
-[ "$1 $2 $3" = 'link show dev' ] || exit 2
-case $4 in br0|br10) exit 0 ;; *) exit 1 ;; esac
+case $* in
+  'link show dev br0'|'link show dev br10') exit 0 ;;
+  '-d link show type bridge')
+    printf '10: br0: <BROADCAST,MULTICAST,UP> mtu 1500 state UP\n'
+    printf '11: br10: <BROADCAST,MULTICAST,UP> mtu 1500 state UP\n'
+    ;;
+  '-4 route show dev br0 scope link')
+    printf '192.168.20.0/24 proto kernel scope link src 192.168.20.1\n'
+    ;;
+  '-4 route show dev br10 scope link')
+    case ${LIB_CONNECTED_ROUTES_MODE:-normal} in
+      normal) printf '192.168.10.0/24 proto kernel scope link src 192.168.10.1\n' ;;
+      overlap) printf '192.168.20.128/25 proto kernel scope link src 192.168.20.129\n' ;;
+      missing) : ;;
+      *) exit 99 ;;
+    esac
+    ;;
+  '-6 route show table all proto kernel')
+    case ${LIB_ENDPOINT_ROUTE_MODE:-one} in
+      one)
+        printf 'anycast 2001:db8:1234:20::/64 dev br0 proto kernel metric 0\n'
+        printf '2001:db8:1234:30::/64 dev br10 proto kernel metric 256\n'
+        ;;
+      zero)
+        printf 'fe80::/64 dev br0 proto kernel metric 256\n'
+        ;;
+      multiple)
+        printf '2001:db8:1234:20::/64 dev br0 proto kernel metric 256\n'
+        printf '2001:db8:1234:21::/64 dev br0 proto kernel metric 256\n'
+        ;;
+      wan)
+        printf '2001:db8:1234:30::/64 dev eth9 proto kernel metric 256\n'
+        ;;
+      *) exit 99 ;;
+    esac
+    ;;
+  *) exit 2 ;;
+esac
 EOF
 chmod +x "$TMP/bin/ip"
 PATH="$TMP/bin:$PATH"
@@ -46,6 +83,11 @@ export PATH
 
 validate_main_file() {
   v6_load_main_config "$1" "$TMP/config/routed-networks.conf" && v6_validate_main_config
+}
+
+call_endpoint_prefix64() {
+  command -v v6_endpoint_prefix64 >/dev/null 2>&1 || return 0
+  v6_endpoint_prefix64 "$1"
 }
 
 make_main_variant() {
@@ -65,6 +107,36 @@ v6_load_main_config "$TMP/config/gateway.conf" "$TMP/config/routed-networks.conf
 test_start 'valid config passes'
 assert_success v6_validate_main_config
 
+test_start 'explicit endpoint interface is accepted as config data'
+assert_eq "$V6_ENDPOINT_IF" br0
+
+sed '/^ENDPOINT_IF=/d' "$TMP/config/gateway.conf" >"$TMP/config/missing-endpoint.env"
+test_start 'missing endpoint interface fails'
+assert_failure validate_main_file "$TMP/config/missing-endpoint.env"
+
+LIB_ENDPOINT_ROUTE_MODE=one
+export LIB_ENDPOINT_ROUTE_MODE
+test_start 'endpoint prefix comes from the explicit bridge kernel route'
+assert_eq "$(call_endpoint_prefix64 br0)" '2001:0db8:1234:0020:0000:0000:0000:0000'
+
+LIB_ENDPOINT_ROUTE_MODE=zero
+export LIB_ENDPOINT_ROUTE_MODE
+test_start 'zero endpoint prefix candidates fail closed'
+assert_failure call_endpoint_prefix64 br0
+
+LIB_ENDPOINT_ROUTE_MODE=multiple
+export LIB_ENDPOINT_ROUTE_MODE
+test_start 'multiple endpoint prefix candidates fail closed'
+assert_failure call_endpoint_prefix64 br0
+
+LIB_ENDPOINT_ROUTE_MODE=wan
+export LIB_ENDPOINT_ROUTE_MODE
+test_start 'WAN interface cannot be selected as the delegated endpoint bridge'
+assert_failure call_endpoint_prefix64 eth9
+
+LIB_ENDPOINT_ROUTE_MODE=one
+export LIB_ENDPOINT_ROUTE_MODE
+
 sed '/^TCP_MSS=/d' "$TMP/config/gateway.conf" >"$TMP/config/missing-key.env"
 test_start 'missing required key fails'
 assert_failure validate_main_file "$TMP/config/missing-key.env"
@@ -78,6 +150,8 @@ test_start 'invalid IID fails'
 assert_failure validate_main_file "$TMP/config/invalid-iid.env"
 
 make_main_variant 'mtu-min.env' 'TUN_MTU=1460' 'TUN_MTU=1280'
+sed 's/TCP_MSS=1420/TCP_MSS=1240/' "$TMP/config/mtu-min.env" >"$TMP/config/mtu-min.tmp"
+mv "$TMP/config/mtu-min.tmp" "$TMP/config/mtu-min.env"
 test_start 'minimum TUN_MTU passes'
 assert_success validate_main_file "$TMP/config/mtu-min.env"
 make_main_variant 'mtu-max.env' 'TUN_MTU=1460' 'TUN_MTU=1500'
@@ -97,8 +171,8 @@ make_main_variant 'mss-min.env' 'TCP_MSS=1420' 'TCP_MSS=536'
 test_start 'minimum TCP_MSS passes'
 assert_success validate_main_file "$TMP/config/mss-min.env"
 make_main_variant 'mss-max.env' 'TCP_MSS=1420' 'TCP_MSS=1460'
-test_start 'maximum TCP_MSS passes'
-assert_success validate_main_file "$TMP/config/mss-max.env"
+test_start 'absolute maximum TCP MSS fails when it exceeds tunnel MTU minus IPv4 header'
+assert_failure validate_main_file "$TMP/config/mss-max.env"
 make_main_variant 'mss-low.env' 'TCP_MSS=1420' 'TCP_MSS=535'
 test_start 'low TCP_MSS fails'
 assert_failure validate_main_file "$TMP/config/mss-low.env"
@@ -157,6 +231,10 @@ make_main_variant 'outer-allow.env' 'OUTER_IPIP_ALLOW=auto' 'OUTER_IPIP_ALLOW=ma
 test_start 'invalid outer IPIP allow value fails'
 assert_failure validate_main_file "$TMP/config/outer-allow.env"
 
+make_main_variant 'mss-too-large.env' 'TCP_MSS=1420' 'TCP_MSS=1421'
+test_start 'TCP MSS larger than tunnel MTU minus IPv4 header fails'
+assert_failure validate_main_file "$TMP/config/mss-too-large.env"
+
 test_start 'network parser emits stable delimiter'
 assert_eq "$(v6_iter_networks "$TMP/config/routed-networks.conf")" "br0|192.168.20.0/24
 br10|192.168.10.0/24"
@@ -174,6 +252,27 @@ assert_failure v6_iter_networks "$TMP/config/invalid-cidr.conf"
 printf 'br99 192.168.20.0/24\n' >"$TMP/config/missing-link.conf"
 test_start 'network entry with missing link fails'
 assert_failure v6_iter_networks "$TMP/config/missing-link.conf"
+
+printf 'br0 8.8.8.0/24\n' >"$TMP/config/public-cidr.conf"
+test_start 'public routed network fails'
+assert_failure v6_iter_networks "$TMP/config/public-cidr.conf"
+
+printf 'br0 192.168.20.1/24\n' >"$TMP/config/noncanonical-cidr.conf"
+test_start 'noncanonical routed network fails'
+assert_failure v6_iter_networks "$TMP/config/noncanonical-cidr.conf"
+
+printf 'br0 192.168.20.0/24\nbr10 192.168.20.128/25\n' >"$TMP/config/overlap.conf"
+LIB_CONNECTED_ROUTES_MODE=overlap
+export LIB_CONNECTED_ROUTES_MODE
+test_start 'overlapping routed networks fail'
+assert_failure v6_iter_networks "$TMP/config/overlap.conf"
+unset LIB_CONNECTED_ROUTES_MODE
+
+LIB_CONNECTED_ROUTES_MODE=missing
+export LIB_CONNECTED_ROUTES_MODE
+test_start 'network without an exact connected route fails'
+assert_failure v6_iter_networks "$TMP/config/routed-networks.conf"
+unset LIB_CONNECTED_ROUTES_MODE
 
 DRY_RUN=1
 export DRY_RUN
@@ -201,6 +300,7 @@ v6_release_lock "$TMP/lock"
 cat >"$TMP/config/unknown.env" <<'EOF'
 WAN_IF=eth9
 TUN_IF=ip6tnl1
+ENDPOINT_IF=br0
 STATIC_V4=203.0.113.42
 BR_V6=2001:db8:ffff::1
 IID=00cb:0071:2a00:0000
@@ -220,6 +320,7 @@ cat >"$TMP/config/duplicate.env" <<'EOF'
 WAN_IF=eth9
 WAN_IF=eth10
 TUN_IF=ip6tnl1
+ENDPOINT_IF=br0
 STATIC_V4=203.0.113.42
 BR_V6=2001:db8:ffff::1
 IID=00cb:0071:2a00:0000
@@ -292,6 +393,7 @@ assert_failure v6_load_main_config "$TMP/config/malformed.env" "$TMP/config/rout
 cat >"$TMP/config/malicious.env" <<'EOF'
 WAN_IF=$(touch forbidden)
 TUN_IF=ip6tnl1
+ENDPOINT_IF=br0
 STATIC_V4=203.0.113.42
 BR_V6=2001:db8:ffff::1
 IID=00cb:0071:2a00:0000
@@ -394,6 +496,7 @@ unset V6PLUS_ALLOW_DOCUMENTATION_ADDRESSES
 cat >"$TMP/config/rfc5737.env" <<'EOF'
 WAN_IF=eth9
 TUN_IF=ip6tnl1
+ENDPOINT_IF=br0
 STATIC_V4=203.0.113.42
 BR_V6=2001:4860::1
 IID=00cb:0071:2a00:0000
@@ -411,6 +514,7 @@ assert_failure v6_validate_main_config
 cat >"$TMP/config/rfc3849.env" <<'EOF'
 WAN_IF=eth9
 TUN_IF=ip6tnl1
+ENDPOINT_IF=br0
 STATIC_V4=8.8.8.8
 BR_V6=2001:db8:ffff::1
 IID=00cb:0071:2a00:0000
@@ -428,6 +532,7 @@ assert_failure v6_validate_main_config
 cat >"$TMP/config/invalid-ipv6.env" <<'EOF'
 WAN_IF=eth9
 TUN_IF=ip6tnl1
+ENDPOINT_IF=br0
 STATIC_V4=8.8.8.8
 BR_V6=2001::db8::1
 IID=00cb:0071:2a00:0000

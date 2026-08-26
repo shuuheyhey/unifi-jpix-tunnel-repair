@@ -236,6 +236,30 @@ normalize_tunnel_mode() {
 
 current_tunnel() {
   tunnel_output=$("$V6_IP_CMD" -d -6 tunnel show "$V6_TUN_IF" 2>/dev/null) || return 1
+  printf '%s\n' "$tunnel_output" | awk -v wanted="$V6_TUN_IF:" '
+    NR != 1 { exit 1 }
+    {
+      if ($1 != wanted || ($2 != "any" && $2 != "any/ipv6" && $2 != "ipip6" && $2 != "ip/ipv6")) exit 1
+      for (i = 3; i <= NF; i++) {
+        key = $i
+        if (key == "remote" || key == "local" || key == "encaplimit" ||
+            key == "hoplimit" || key == "tclass" || key == "flowlabel") {
+          if (++seen[key] != 1 || i == NF) exit 1
+          value = $(++i)
+          if (value !~ /^[A-Za-z0-9xX.:]+$/) exit 1
+          continue
+        }
+        if (key == "(flowinfo") {
+          if (++seen[key] != 1 || i == NF) exit 1
+          value = $(++i)
+          if (value !~ /^[0-9A-Fa-fxX]+\)$/) exit 1
+          continue
+        }
+        exit 1
+      }
+      if (seen["remote"] != 1 || seen["local"] != 1) exit 1
+    }
+  ' || return 1
   set -- $tunnel_output
   [ "$#" -ge 6 ] || return 1
   CURRENT_TUN_MODE=$(normalize_tunnel_mode "$2") || return 1
@@ -405,18 +429,19 @@ restore_route4_vector() {
 
 rule4_exists() {
   "$V6_IP_CMD" -4 rule show >"$WORK_DIR/query-rules" 2>/dev/null || return 2
-  awk -v pref="$1" -v iface="$2" -v table="$3" '
+  awk -v pref="$1" -v cidr="$2" -v iface="$3" -v table="$4" '
     { p=$1; sub(/:$/, "", p) }
-    p == pref && $4 == "iif" && $5 == iface && $6 == "lookup" && $7 == table { found=1 }
+    NF == 7 && p == pref && $2 == "from" && $3 == cidr && $4 == "iif" &&
+      $5 == iface && $6 == "lookup" && $7 == table { found=1 }
     END { exit !found }
   ' "$WORK_DIR/query-rules"
 }
 
 rule4_count() {
   "$V6_IP_CMD" -4 rule show >"$WORK_DIR/query-rule-count" 2>/dev/null || return 2
-  awk -v pref="$1" -v iface="$2" -v table="$3" '
+  awk -v pref="$1" -v cidr="$2" -v iface="$3" -v table="$4" '
     { p=$1; sub(/:$/, "", p) }
-    NF == 7 && p == pref && $2 == "from" && $3 == "all" && $4 == "iif" &&
+    NF == 7 && p == pref && $2 == "from" && $3 == cidr && $4 == "iif" &&
       $5 == iface && $6 == "lookup" && $7 == table { count++ }
     END { print count+0 }
   ' "$WORK_DIR/query-rule-count"
@@ -520,7 +545,7 @@ record_inverse() {
 
 inverse_record() {
   inverse_line=$1
-  IFS='|' read -r inverse_type inverse_a inverse_b inverse_c inverse_d inverse_extra <<EOF
+  IFS='|' read -r inverse_type inverse_a inverse_b inverse_c inverse_d inverse_e inverse_extra <<EOF
 $inverse_line
 EOF
   [ -z "$inverse_extra" ] || return 1
@@ -540,9 +565,9 @@ EOF
       ;;
     ROUTE4_ABSENT) inverse_route4_absent "$inverse_a" "$inverse_b" "$inverse_c" ;;
     ROUTE4_PRESENT) [ -z "$inverse_c" ] && v6_is_uint "$inverse_a" && restore_route4_vector "$inverse_a" "$inverse_b" ;;
-    RULE4_ABSENT) inverse_rule4_absent "$inverse_a" "$inverse_b" "$inverse_c" ;;
-    RULE4_PRESENT) inverse_rule4_present "$inverse_a" "$inverse_b" "$inverse_c" ;;
-    RULE4_RESTORE) inverse_rule4_restore "$inverse_a" "$inverse_b" "$inverse_c" "$inverse_d" ;;
+    RULE4_ABSENT) inverse_rule4_absent "$inverse_a" "$inverse_b" "$inverse_c" "$inverse_d" ;;
+    RULE4_PRESENT) inverse_rule4_present "$inverse_a" "$inverse_b" "$inverse_c" "$inverse_d" ;;
+    RULE4_RESTORE) inverse_rule4_restore "$inverse_a" "$inverse_b" "$inverse_c" "$inverse_d" "$inverse_e" ;;
     SNAT_RESTORE) inverse_snat_restore "$inverse_a" "$inverse_b" "$inverse_c" ;;
     MSS_OUT_RESTORE) inverse_mss_out_restore "$inverse_a" ;;
     MSS_IN_RESTORE) inverse_mss_in_restore "$inverse_a" ;;
@@ -572,24 +597,25 @@ inverse_route4_absent() {
   if route4_exists "$1" "$2" "$3"; then v6_run "$V6_IP_CMD" -4 route del table "$1" "$2" dev "$3"; else inverse_status=$?; [ "$inverse_status" -eq 1 ]; fi
 }
 inverse_rule4_absent() {
-  v6_is_uint "$1" && v6_is_iface_value "$2" && v6_is_uint "$3" || return 1
-  if rule4_exists "$1" "$2" "$3"; then v6_run "$V6_IP_CMD" -4 rule del pref "$1" iif "$2" lookup "$3"; else inverse_status=$?; [ "$inverse_status" -eq 1 ]; fi
+  v6_is_uint "$1" && v6_is_private_canonical_cidr "$2" && v6_is_iface_value "$3" && v6_is_uint "$4" || return 1
+  if rule4_exists "$1" "$2" "$3" "$4"; then v6_run "$V6_IP_CMD" -4 rule del pref "$1" from "$2" iif "$3" lookup "$4"; else inverse_status=$?; [ "$inverse_status" -eq 1 ]; fi
 }
 inverse_rule4_present() {
-  v6_is_uint "$1" && v6_is_iface_value "$2" && v6_is_uint "$3" || return 1
-  if rule4_exists "$1" "$2" "$3"; then return 0; else inverse_status=$?; [ "$inverse_status" -eq 1 ] || return 1; fi
-  v6_run "$V6_IP_CMD" -4 rule add pref "$1" iif "$2" lookup "$3"
+  v6_is_uint "$1" && v6_is_private_canonical_cidr "$2" && v6_is_iface_value "$3" && v6_is_uint "$4" || return 1
+  if rule4_exists "$1" "$2" "$3" "$4"; then return 0; else inverse_status=$?; [ "$inverse_status" -eq 1 ] || return 1; fi
+  v6_run "$V6_IP_CMD" -4 rule add pref "$1" from "$2" iif "$3" lookup "$4"
 }
 inverse_rule4_restore() {
   inverse_rule_pref=$1
-  inverse_rule_iface=$2
-  inverse_rule_table=$3
-  inverse_rule_count=$4
-  v6_is_uint "$inverse_rule_pref" && v6_is_iface_value "$inverse_rule_iface" &&
+  inverse_rule_cidr=$2
+  inverse_rule_iface=$3
+  inverse_rule_table=$4
+  inverse_rule_count=$5
+  v6_is_uint "$inverse_rule_pref" && v6_is_private_canonical_cidr "$inverse_rule_cidr" && v6_is_iface_value "$inverse_rule_iface" &&
     v6_is_uint "$inverse_rule_table" && v6_is_uint "$inverse_rule_count" || return 1
   while :; do
-    if rule4_exists "$inverse_rule_pref" "$inverse_rule_iface" "$inverse_rule_table"; then
-      v6_run "$V6_IP_CMD" -4 rule del pref "$inverse_rule_pref" iif "$inverse_rule_iface" lookup "$inverse_rule_table" || return 1
+    if rule4_exists "$inverse_rule_pref" "$inverse_rule_cidr" "$inverse_rule_iface" "$inverse_rule_table"; then
+      v6_run "$V6_IP_CMD" -4 rule del pref "$inverse_rule_pref" from "$inverse_rule_cidr" iif "$inverse_rule_iface" lookup "$inverse_rule_table" || return 1
     else
       inverse_rule_status=$?
       [ "$inverse_rule_status" -eq 1 ] || return 1
@@ -597,7 +623,7 @@ inverse_rule4_restore() {
     fi
   done
   while [ "$inverse_rule_count" -gt 0 ]; do
-    v6_run "$V6_IP_CMD" -4 rule add pref "$inverse_rule_pref" iif "$inverse_rule_iface" lookup "$inverse_rule_table" || return 1
+    v6_run "$V6_IP_CMD" -4 rule add pref "$inverse_rule_pref" from "$inverse_rule_cidr" iif "$inverse_rule_iface" lookup "$inverse_rule_table" || return 1
     inverse_rule_count=$((inverse_rule_count - 1))
   done
 }
@@ -967,6 +993,7 @@ mutation_failed() {
 }
 
 prepare_plan() {
+  v6_platform_is_verified "$ROOT/config/verified-platforms.conf" || return 2
   NEW_NETWORKS=$WORK_DIR/new-networks
   : >"$NEW_NETWORKS" || return 1
   network_index=0
@@ -981,7 +1008,17 @@ prepare_plan() {
   [ "$network_index" -gt 0 ] || return 2
 
   ROUTE_SOURCE=$(v6_route_source_v6 "$V6_BR_V6") || return 1
-  LOCAL_V6=$(v6_compose_local_v6 "$ROUTE_SOURCE" "$V6_IID") || return 1
+  v6_expand_ipv6 "$ROUTE_SOURCE" >/dev/null || return 1
+  UNDERLAY_ROUTE=$("$V6_IP_CMD" -6 route get "$V6_BR_V6" 2>/dev/null) || return 1
+  set -- $UNDERLAY_ROUTE
+  UNDERLAY_IF=$(read_token_after dev "$@") || return 1
+  [ "$UNDERLAY_IF" = "$V6_WAN_IF" ] || return 1
+  UNDERLAY_LINK=$("$V6_IP_CMD" -o link show dev "$UNDERLAY_IF" 2>/dev/null) || return 1
+  set -- $UNDERLAY_LINK
+  UNDERLAY_MTU=$(read_token_after mtu "$@") || return 1
+  v6_is_uint "$UNDERLAY_MTU" && [ $((V6_TUN_MTU + 40)) -le "$UNDERLAY_MTU" ] || return 1
+  ENDPOINT_PREFIX=$(v6_endpoint_prefix64 "$V6_ENDPOINT_IF") || return 1
+  LOCAL_V6=$(v6_compose_local_v6 "$ENDPOINT_PREFIX" "$V6_IID") || return 1
   v6_is_ip_value "$LOCAL_V6" || return 1
   NAT_CHAIN=$(v6_detect_nat_chain) || return 1
   V6_INPUT_CHAIN=$(v6_detect_v6_input_chain) || return 1
@@ -1068,11 +1105,12 @@ later_apply_ownership() {
     set -- $current_rule
     current_pref=${1%:}
     grep -F -x -- "$current_pref" "$WORK_DIR/owned-prefs" >/dev/null 2>&1 || continue
-    [ "$#" -eq 7 ] && [ "$2" = from ] && [ "$3" = all ] && [ "$4" = iif ] && [ "$6" = lookup ] || return 1
+    [ "$#" -eq 7 ] && [ "$2" = from ] && v6_is_private_canonical_cidr "$3" && [ "$4" = iif ] && [ "$6" = lookup ] || return 1
+    current_cidr=$3
     current_iface=$5
     current_table=$7
-    awk -F'|' -v pref="$current_pref" -v iface="$current_iface" -v table="$current_table" -v owned="$V6_ROUTE_TABLE" '
-      $3 == pref && $1 == iface && table == owned { found++ }
+    awk -F'|' -v pref="$current_pref" -v cidr="$current_cidr" -v iface="$current_iface" -v table="$current_table" -v owned="$V6_ROUTE_TABLE" '
+      $3 == pref && $2 == cidr && $1 == iface && table == owned { found++ }
       END { exit !(found == 1) }
     ' "$OLD_NETWORKS" || return 1
     current_pref_count=$(awk -v pref="$current_pref" '{ p=$1; sub(/:$/, "", p); if (p == pref) count++ } END { print count+0 }' "$WORK_DIR/current.rules")
@@ -1195,8 +1233,8 @@ dry_run_plan() {
         fi
       fi
       [ "$dry_old_current" -eq 0 ] || continue
-      if rule4_exists "$dry_old_pref" "$dry_old_iface" "$V6_ROUTE_TABLE"; then
-        v6_run "$V6_IP_CMD" -4 rule del pref "$dry_old_pref" iif "$dry_old_iface" lookup "$V6_ROUTE_TABLE" || return 1
+      if rule4_exists "$dry_old_pref" "$dry_old_cidr" "$dry_old_iface" "$V6_ROUTE_TABLE"; then
+        v6_run "$V6_IP_CMD" -4 rule del pref "$dry_old_pref" from "$dry_old_cidr" iif "$dry_old_iface" lookup "$V6_ROUTE_TABLE" || return 1
       else
         dry_status=$?
         [ "$dry_status" -eq 1 ] || return 1
@@ -1215,10 +1253,10 @@ dry_run_plan() {
       [ "$dry_status" -eq 1 ] || return 1
       v6_run "$V6_IP_CMD" -4 route replace table "$V6_ROUTE_TABLE" "$plan_cidr" dev "$plan_iface" || return 1
     fi
-    if rule4_exists "$plan_pref" "$plan_iface" "$V6_ROUTE_TABLE"; then :; else
+    if rule4_exists "$plan_pref" "$plan_cidr" "$plan_iface" "$V6_ROUTE_TABLE"; then :; else
       dry_status=$?
       [ "$dry_status" -eq 1 ] || return 1
-      v6_run "$V6_IP_CMD" -4 rule add pref "$plan_pref" iif "$plan_iface" lookup "$V6_ROUTE_TABLE" || return 1
+      v6_run "$V6_IP_CMD" -4 rule add pref "$plan_pref" from "$plan_cidr" iif "$plan_iface" lookup "$V6_ROUTE_TABLE" || return 1
     fi
     if iptables_rule_exists nat "$NAT_CHAIN" -s "$plan_cidr" -o "$V6_TUN_IF" -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source "$V6_STATIC_V4"; then :; else
       dry_status=$?
@@ -1328,18 +1366,18 @@ mutate_route_del() {
   PHYSICAL_MUTATED=1
 }
 mutate_rule_add() {
-  mutate_rule_count=$(rule4_count "$1" "$2" "$3") || return 1
+  mutate_rule_count=$(rule4_count "$1" "$2" "$3" "$4") || return 1
   [ "$mutate_rule_count" -eq 0 ] || return 0
-  record_inverse "RULE4_RESTORE|$1|$2|$3|$mutate_rule_count" || return 1
-  v6_run "$V6_IP_CMD" -4 rule add pref "$1" iif "$2" lookup "$3" || return 1
+  record_inverse "RULE4_RESTORE|$1|$2|$3|$4|$mutate_rule_count" || return 1
+  v6_run "$V6_IP_CMD" -4 rule add pref "$1" from "$2" iif "$3" lookup "$4" || return 1
   PHYSICAL_MUTATED=1
 }
 mutate_rule_del() {
-  mutate_rule_count=$(rule4_count "$1" "$2" "$3") || return 1
+  mutate_rule_count=$(rule4_count "$1" "$2" "$3" "$4") || return 1
   [ "$mutate_rule_count" -gt 0 ] || return 0
-  record_inverse "RULE4_RESTORE|$1|$2|$3|$mutate_rule_count" || return 1
+  record_inverse "RULE4_RESTORE|$1|$2|$3|$4|$mutate_rule_count" || return 1
   while [ "$mutate_rule_count" -gt 0 ]; do
-    v6_run "$V6_IP_CMD" -4 rule del pref "$1" iif "$2" lookup "$3" || return 1
+    v6_run "$V6_IP_CMD" -4 rule del pref "$1" from "$2" iif "$3" lookup "$4" || return 1
     mutate_rule_count=$((mutate_rule_count - 1))
   done
   PHYSICAL_MUTATED=1
@@ -1431,14 +1469,14 @@ apply_mutations() {
         mutate_snat_del "$LAST_NAT_CHAIN" "$old_cidr" || { mutation_failed stale_snat; return 1; }
       fi
       [ "$old_row_current" -eq 1 ] && continue
-      mutate_rule_del "$old_pref" "$old_iface" "$V6_ROUTE_TABLE" &&
+      mutate_rule_del "$old_pref" "$old_cidr" "$old_iface" "$V6_ROUTE_TABLE" &&
         mutate_route_del "$V6_ROUTE_TABLE" "$old_cidr" "$old_iface" || { mutation_failed stale_network; return 1; }
     done <"$OLD_NETWORKS"
   fi
 
   while IFS='|' read -r new_iface new_cidr new_pref; do
     mutate_route_add "$V6_ROUTE_TABLE" "$new_cidr" "$new_iface" &&
-      mutate_rule_add "$new_pref" "$new_iface" "$V6_ROUTE_TABLE" &&
+      mutate_rule_add "$new_pref" "$new_cidr" "$new_iface" "$V6_ROUTE_TABLE" &&
       mutate_snat_add "$NAT_CHAIN" "$new_cidr" || { mutation_failed managed_network; return 1; }
   done <"$NEW_NETWORKS"
 
@@ -1586,11 +1624,11 @@ check_material_status() {
     status_line reserved_routes inspection_failed current
   fi
 
-  awk -F'|' -v table="$V6_ROUTE_TABLE" '{ print $3 "|" $1 "|" table }' "$WORK_DIR/status-desired" | sort >"$WORK_DIR/status-rules-expected" || return 1
+  awk -F'|' -v table="$V6_ROUTE_TABLE" '{ print $3 "|" $2 "|" $1 "|" table }' "$WORK_DIR/status-desired" | sort >"$WORK_DIR/status-rules-expected" || return 1
   if "$V6_IP_CMD" -4 rule show >"$WORK_DIR/status-rules-raw" 2>/dev/null; then
     awk -v desired="$WORK_DIR/status-desired" 'FILENAME == desired { split($0, fields, "|"); wanted[fields[3]]=1; next }
       { p=$1; sub(/:$/, "", p); if (!(p in wanted)) next;
-        if (NF == 7 && $2 == "from" && $3 == "all" && $4 == "iif" && $6 == "lookup") print p "|" $5 "|" $7;
+        if (NF == 7 && $2 == "from" && $4 == "iif" && $6 == "lookup") print p "|" $3 "|" $5 "|" $7;
         else print "INVALID|" $0 }
     ' "$WORK_DIR/status-desired" "$WORK_DIR/status-rules-raw" | sort >"$WORK_DIR/status-rules-actual"
     if cmp -s "$WORK_DIR/status-rules-actual" "$WORK_DIR/status-rules-expected"; then status_line reserved_rules current current; else status_line reserved_rules drift current; fi
@@ -1647,7 +1685,8 @@ check_status() {
     status_index=$((status_index + 1))
   done <"$WORK_DIR/status-pairs"
   ROUTE_SOURCE=$(v6_route_source_v6 "$V6_BR_V6" 2>/dev/null || :)
-  LOCAL_V6=$(v6_compose_local_v6 "$ROUTE_SOURCE" "$V6_IID" 2>/dev/null || :)
+  ENDPOINT_PREFIX=$(v6_endpoint_prefix64 "$V6_ENDPOINT_IF" 2>/dev/null || :)
+  LOCAL_V6=$(v6_compose_local_v6 "$ENDPOINT_PREFIX" "$V6_IID" 2>/dev/null || :)
   STATUS_FAILED=0
   status_ipv6_line state_local "$LAST_LOCAL_V6" "$LOCAL_V6"
   if status_current_nat_chain=$(v6_detect_nat_chain); then
@@ -1693,7 +1732,7 @@ check_status() {
   if route4_exists "$V6_ROUTE_TABLE" default "$V6_TUN_IF"; then status_line route_default "$V6_TUN_IF" "$V6_TUN_IF"; else status_line route_default missing "$V6_TUN_IF"; fi
   while IFS='|' read -r status_iface status_cidr status_pref; do
     if route4_exists "$V6_ROUTE_TABLE" "$status_cidr" "$status_iface"; then status_line "route_$status_iface" "$status_cidr" "$status_cidr"; else status_line "route_$status_iface" missing "$status_cidr"; fi
-    if rule4_exists "$status_pref" "$status_iface" "$V6_ROUTE_TABLE"; then status_line "rule_$status_iface" "$status_pref" "$status_pref"; else status_line "rule_$status_iface" missing "$status_pref"; fi
+    if rule4_exists "$status_pref" "$status_cidr" "$status_iface" "$V6_ROUTE_TABLE"; then status_line "rule_$status_iface" "$status_pref" "$status_pref"; else status_line "rule_$status_iface" missing "$status_pref"; fi
     if "$V6_IPTABLES_CMD" -t nat -C "$NAT_CHAIN" -s "$status_cidr" -o "$V6_TUN_IF" -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source "$V6_STATIC_V4" >/dev/null 2>&1; then status_line "snat_$status_iface" present present; else status_line "snat_$status_iface" missing present; fi
   done <"$WORK_DIR/status-desired"
   if "$V6_IPTABLES_CMD" -t mangle -C FORWARD -o "$V6_TUN_IF" -p tcp --tcp-flags SYN,RST SYN -m comment --comment unifi-jpix-tunnel-repair -j TCPMSS --set-mss "$V6_TCP_MSS" >/dev/null 2>&1; then status_line mss_forward_out present present; else status_line mss_forward_out missing present; fi
@@ -1745,9 +1784,9 @@ validate_off_rules() {
     set -- $off_rule_line
     off_rule_pref=${1%:}
     grep -F -x -- "$off_rule_pref" "$WORK_DIR/off-owned-prefs" >/dev/null 2>&1 || continue
-    [ "$#" -eq 7 ] && [ "$2" = from ] && [ "$3" = all ] && [ "$4" = iif ] && [ "$6" = lookup ] || return 1
-    awk -F'|' -v pref="$off_rule_pref" -v iface="$5" -v table="$7" -v owned="$V6_ROUTE_TABLE" '
-      $3 == pref && $1 == iface && table == owned { found=1 }
+    [ "$#" -eq 7 ] && [ "$2" = from ] && v6_is_private_canonical_cidr "$3" && [ "$4" = iif ] && [ "$6" = lookup ] || return 1
+    awk -F'|' -v pref="$off_rule_pref" -v cidr="$3" -v iface="$5" -v table="$7" -v owned="$V6_ROUTE_TABLE" '
+      $3 == pref && $2 == cidr && $1 == iface && table == owned { found=1 }
       END { exit !found }
     ' "$OLD_NETWORKS" || return 1
   done <"$WORK_DIR/off-preflight-rules"
@@ -1848,7 +1887,7 @@ off_mutations() {
     mutate_mss_output_del && mutate_mss_in_del && mutate_mss_out_del || { mutation_failed off_mss; return 1; }
     awk '{ rows[NR]=$0 } END { for (i=NR; i>=1; i--) print rows[i] }' "$OLD_NETWORKS" >"$WORK_DIR/off-networks-reverse" || { mutation_failed off_prepare; return 1; }
     while IFS='|' read -r off_iface off_cidr off_pref; do
-      mutate_snat_del "$LAST_NAT_CHAIN" "$off_cidr" && mutate_rule_del "$off_pref" "$off_iface" "$V6_ROUTE_TABLE" && mutate_route_del "$V6_ROUTE_TABLE" "$off_cidr" "$off_iface" || { mutation_failed off_network; return 1; }
+      mutate_snat_del "$LAST_NAT_CHAIN" "$off_cidr" && mutate_rule_del "$off_pref" "$off_cidr" "$off_iface" "$V6_ROUTE_TABLE" && mutate_route_del "$V6_ROUTE_TABLE" "$off_cidr" "$off_iface" || { mutation_failed off_network; return 1; }
     done <"$WORK_DIR/off-networks-reverse"
     if [ "$LAST_V6_INPUT_MANAGED" = yes ]; then mutate_outer_del "$LAST_V6_INPUT_CHAIN" "$V6_BR_V6" "$LAST_LOCAL_V6" || { mutation_failed off_outer; return 1; }; fi
     mutate_route_del "$V6_ROUTE_TABLE" default "$V6_TUN_IF" || { mutation_failed off_default; return 1; }

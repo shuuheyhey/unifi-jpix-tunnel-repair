@@ -23,6 +23,9 @@ case $* in
   'link show dev br0')
     printf '4: br0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 state UP\n'
     ;;
+  '-4 route show dev br0 scope link')
+    printf '192.168.20.0/24 proto kernel scope link src 192.168.20.1\n'
+    ;;
   '-o link show dev eth9')
     case $WAIT_LINK_STYLE in
       up) printf '2: eth9: <BROADCAST,MULTICAST,UP> mtu 1500 state UP\n' ;;

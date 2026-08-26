@@ -223,7 +223,7 @@ v6_load_main_config() {
   [ "$#" -eq 2 ] || return 1
   v6_main_file=$1
   v6_networks_file=$2
-  unset V6_WAN_IF V6_TUN_IF V6_STATIC_V4 V6_BR_V6 V6_IID V6_TUN_MTU V6_TCP_MSS
+  unset V6_WAN_IF V6_TUN_IF V6_ENDPOINT_IF V6_STATIC_V4 V6_BR_V6 V6_IID V6_TUN_MTU V6_TCP_MSS
   unset V6_ROUTE_TABLE V6_RULE_PREF_BASE V6_WATCH_INTERVAL_SECONDS
   unset V6_UPDATE_INTERVAL_SECONDS V6_OUTER_IPIP_ALLOW V6_NETWORKS_CONFIG
   v6_main_parent=${v6_main_file%/*}
@@ -248,7 +248,7 @@ v6_load_main_config() {
     key=${line%%=*}
     value=${line#*=}
     case $key in
-      WAN_IF|TUN_IF|STATIC_V4|BR_V6|IID|TUN_MTU|TCP_MSS|ROUTE_TABLE|RULE_PREF_BASE|WATCH_INTERVAL_SECONDS|UPDATE_INTERVAL_SECONDS|OUTER_IPIP_ALLOW) ;;
+      WAN_IF|TUN_IF|ENDPOINT_IF|STATIC_V4|BR_V6|IID|TUN_MTU|TCP_MSS|ROUTE_TABLE|RULE_PREF_BASE|WATCH_INTERVAL_SECONDS|UPDATE_INTERVAL_SECONDS|OUTER_IPIP_ALLOW) ;;
       *) v6_cleanup_seen_dir "$v6_seen_dir"; return 1 ;;
     esac
     if v6_seen_key "$v6_seen_file" "$key"; then
@@ -268,6 +268,7 @@ v6_load_main_config() {
     case $key in
       WAN_IF) V6_WAN_IF=$value ;;
       TUN_IF) V6_TUN_IF=$value ;;
+      ENDPOINT_IF) V6_ENDPOINT_IF=$value ;;
       STATIC_V4) V6_STATIC_V4=$value ;;
       BR_V6) V6_BR_V6=$value ;;
       IID) V6_IID=$value ;;
@@ -464,6 +465,85 @@ v6_is_cidr() {
   [ "$addr" != "$1" ] && v6_is_ipv4 "$addr" && v6_is_uint "$bits" && [ "$bits" -ge 0 ] && [ "$bits" -le 32 ]
 }
 
+v6_private_cidr_range() {
+  [ "$#" -eq 1 ] || return 1
+  printf '%s\n' "$1" | awk '
+    function fail() { exit 1 }
+    {
+      if (split($0, cidr, "/") != 2) fail()
+      if (cidr[2] !~ /^[0-9]+$/ || (length(cidr[2]) > 1 && cidr[2] ~ /^0/)) fail()
+      bits = cidr[2] + 0
+      if (bits < 0 || bits > 32) fail()
+      if (split(cidr[1], octet, ".") != 4) fail()
+      value = 0
+      for (i = 1; i <= 4; i++) {
+        if (octet[i] !~ /^[0-9]+$/ || (length(octet[i]) > 1 && octet[i] ~ /^0/)) fail()
+        number = octet[i] + 0
+        if (number > 255 || sprintf("%d", number) != octet[i]) fail()
+        value = value * 256 + number
+      }
+      size = 1
+      for (i = bits; i < 32; i++) size *= 2
+      start = int(value / size) * size
+      if (value != start) fail()
+      end = start + size - 1
+      ten_start = 10 * 256 * 256 * 256
+      ten_end = ten_start + 256 * 256 * 256 - 1
+      one72_start = (172 * 256 + 16) * 256 * 256
+      one72_end = one72_start + 16 * 256 * 256 - 1
+      one92_start = (192 * 256 + 168) * 256 * 256
+      one92_end = one92_start + 256 * 256 - 1
+      if (!((start >= ten_start && end <= ten_end) ||
+            (start >= one72_start && end <= one72_end) ||
+            (start >= one92_start && end <= one92_end))) fail()
+      printf "%.0f|%.0f\n", start, end
+    }
+  '
+}
+
+v6_is_private_canonical_cidr() {
+  v6_private_cidr_range "$1" >/dev/null
+}
+
+v6_platform_is_verified() {
+  [ "$#" -eq 1 ] && [ -r "$1" ] || return 1
+  if [ "${V6PLUS_ALLOW_NONROOT:-0}" = 1 ] && [ "${V6PLUS_TEST_PLATFORM_VERIFIED:-0}" = 1 ]; then
+    return 0
+  fi
+  v6_platform_os=
+  if command -v ubnt-device-info >/dev/null 2>&1; then
+    v6_platform_os=$(ubnt-device-info firmware 2>/dev/null | awk 'NR == 1 { print; exit }' || :)
+  fi
+  if [ -z "$v6_platform_os" ] && [ -r "${V6PLUS_OS_VERSION_FILE:-/usr/lib/version}" ]; then
+    IFS= read -r v6_platform_os <"${V6PLUS_OS_VERSION_FILE:-/usr/lib/version}" || :
+  fi
+  v6_platform_network=
+  if [ -r "${V6PLUS_NETWORK_VERSION_FILE:-/usr/lib/unifi/webapps/ROOT/app-unifi/.version}" ]; then
+    IFS= read -r v6_platform_network <"${V6PLUS_NETWORK_VERSION_FILE:-/usr/lib/unifi/webapps/ROOT/app-unifi/.version}" || :
+  fi
+  v6_platform_kernel=$(uname -r 2>/dev/null || :)
+  v6_platform_iproute=$("$V6_IP_CMD" -Version 2>/dev/null | awk 'NR == 1 {
+    for (i = 1; i <= NF; i++) if ($i ~ /^iproute2-/) {
+      sub(/^iproute2-/, "", $i); sub(/,$/, "", $i); print $i; exit
+    }
+  }' || :)
+  v6_platform_iptables=$("$V6_IPTABLES_CMD" --version 2>/dev/null | awk 'NR == 1 {
+    if ($0 ~ /\(legacy\)/) print "legacy"; else if ($0 ~ /\(nf_tables\)/) print "nf_tables"
+  }' || :)
+  v6_platform_ip6tables=$("$V6_IP6TABLES_CMD" --version 2>/dev/null | awk 'NR == 1 {
+    if ($0 ~ /\(legacy\)/) print "legacy"; else if ($0 ~ /\(nf_tables\)/) print "nf_tables"
+  }' || :)
+  v6_platform_matches=$(awk -F'|' -v os="$v6_platform_os" -v network="$v6_platform_network" \
+    -v kernel="$v6_platform_kernel" -v iproute="$v6_platform_iproute" \
+    -v ipt="$v6_platform_iptables" -v ip6t="$v6_platform_ip6tables" '
+      /^[[:space:]]*#/ || NF == 0 { next }
+      NF == 6 && $1 == os && $2 == network && $3 == kernel && $4 == iproute &&
+        $5 == ipt && $6 == ip6t { count++ }
+      END { print count + 0 }
+    ' "$1") || return 1
+  [ "$v6_platform_matches" -eq 1 ]
+}
+
 v6_is_ipv6() {
   case $1 in
     *:*) ;;
@@ -497,6 +577,13 @@ v6_clear_ipv6_helper_scratch() {
   unset v6_compose_source_prefix v6_compose_iid_suffix v6_compose_print_status
   unset address marker left right left_count right_count left_parts right_parts
   unset zeros total hextets hextet
+}
+
+v6_clear_endpoint_helper_scratch() {
+  unset v6_endpoint_iface v6_endpoint_bridges v6_endpoint_bridge_count
+  unset v6_endpoint_routes v6_endpoint_candidates
+  unset v6_endpoint_candidate v6_endpoint_expanded v6_endpoint_prefix
+  unset v6_endpoint_count v6_endpoint_result
 }
 
 v6_expand_ipv6() {
@@ -578,6 +665,89 @@ v6_route_source_v6() {
   v6_die "BR route has no selected IPv6 source"
 }
 
+v6_endpoint_prefix64() {
+  [ "$#" -eq 1 ] || return 1
+  # An inherited exported shell variable keeps its export attribute after a
+  # plain assignment. Clear every helper name before launching ip/awk/cut so
+  # delegated prefixes cannot leak into child-process environments.
+  v6_clear_endpoint_helper_scratch
+  v6_endpoint_iface=$1
+  v6_is_iface_value "$v6_endpoint_iface" || { v6_clear_endpoint_helper_scratch; return 1; }
+  v6_endpoint_bridges=$("$V6_IP_CMD" -d link show type bridge 2>/dev/null) || {
+    v6_clear_endpoint_helper_scratch
+    return 1
+  }
+  v6_endpoint_bridge_count=$(printf '%s\n' "$v6_endpoint_bridges" | awk -v wanted="$v6_endpoint_iface" '
+    /^[0-9]+: / {
+      name = $2
+      sub(/:$/, "", name)
+      sub(/@.*/, "", name)
+      if (name == wanted) count++
+    }
+    END { print count + 0 }
+  ') || {
+    v6_clear_endpoint_helper_scratch
+    return 1
+  }
+  [ "$v6_endpoint_bridge_count" -eq 1 ] || {
+    v6_clear_endpoint_helper_scratch
+    return 1
+  }
+  v6_endpoint_routes=$("$V6_IP_CMD" -6 route show table all proto kernel 2>/dev/null) || {
+    v6_clear_endpoint_helper_scratch
+    return 1
+  }
+  v6_make_seen_dir || { v6_clear_endpoint_helper_scratch; return 1; }
+  v6_endpoint_candidates=$v6_seen_dir/endpoint-prefixes
+  : >"$v6_endpoint_candidates" || {
+    v6_cleanup_seen_dir "$v6_seen_dir"
+    v6_clear_endpoint_helper_scratch
+    return 1
+  }
+  printf '%s\n' "$v6_endpoint_routes" | awk -v wanted="$v6_endpoint_iface" '
+    {
+      device = ""
+      candidate = ""
+      for (i = 1; i <= NF; i++) {
+        if ($i == "dev" && i < NF) device = $(i + 1)
+        if ($i ~ /\//) {
+          split($i, prefix, "/")
+          if (prefix[1] ~ /^[23]/ && prefix[2] == 64) candidate = prefix[1]
+        }
+      }
+      if (device == wanted && candidate != "") print candidate
+    }
+  ' | while IFS= read -r v6_endpoint_candidate; do
+    [ -n "$v6_endpoint_candidate" ] || continue
+    v6_endpoint_expanded=$(v6_expand_ipv6 "$v6_endpoint_candidate") || exit 1
+    v6_endpoint_prefix=$(printf '%s\n' "$v6_endpoint_expanded" | cut -d: -f1-4)
+    printf '%s:0000:0000:0000:0000\n' "$v6_endpoint_prefix"
+  done | LC_ALL=C sort -u >"$v6_endpoint_candidates" || {
+    v6_cleanup_seen_dir "$v6_seen_dir"
+    v6_clear_endpoint_helper_scratch
+    return 1
+  }
+  v6_endpoint_count=$(awk 'END { print NR + 0 }' "$v6_endpoint_candidates") || {
+    v6_cleanup_seen_dir "$v6_seen_dir"
+    v6_clear_endpoint_helper_scratch
+    return 1
+  }
+  if [ "$v6_endpoint_count" -ne 1 ]; then
+    v6_cleanup_seen_dir "$v6_seen_dir"
+    v6_clear_endpoint_helper_scratch
+    return 1
+  fi
+  IFS= read -r v6_endpoint_result <"$v6_endpoint_candidates" || {
+    v6_cleanup_seen_dir "$v6_seen_dir"
+    v6_clear_endpoint_helper_scratch
+    return 1
+  }
+  v6_cleanup_seen_dir "$v6_seen_dir"
+  set -- "$v6_endpoint_result"
+  v6_clear_endpoint_helper_scratch
+  printf '%s\n' "$1"
+}
+
 v6_compose_local_v6() {
   [ "$#" -eq 2 ] || return 1
   v6_clear_ipv6_helper_scratch
@@ -609,6 +779,11 @@ v6_iter_networks() {
     return 1
   }
   v6_parsed_file=$v6_seen_dir/parsed
+  v6_ranges_file=$v6_seen_dir/ranges
+  : >"$v6_ranges_file" || {
+    v6_cleanup_seen_dir "$v6_seen_dir"
+    return 1
+  }
   awk '
     { sub(/[[:space:]]*#.*/, "") }
     NF == 0 { next }
@@ -623,10 +798,41 @@ v6_iter_networks() {
       v6_cleanup_seen_dir "$v6_seen_dir"
       return 1
     }
-    v6_is_iface_value "$iface" && v6_is_cidr "$cidr" && "$V6_IP_CMD" link show dev "$iface" >/dev/null 2>&1 || {
+    v6_is_iface_value "$iface" && v6_is_private_canonical_cidr "$cidr" &&
+      "$V6_IP_CMD" link show dev "$iface" >/dev/null 2>&1 || {
       v6_cleanup_seen_dir "$v6_seen_dir"
       return 1
     }
+    v6_connected_routes=$("$V6_IP_CMD" -4 route show dev "$iface" scope link 2>/dev/null) || {
+      v6_cleanup_seen_dir "$v6_seen_dir"
+      return 1
+    }
+    printf '%s\n' "$v6_connected_routes" | awk -v wanted="$cidr" '
+      $1 == wanted { count++ }
+      END { exit !(count == 1) }
+    ' || {
+      v6_cleanup_seen_dir "$v6_seen_dir"
+      return 1
+    }
+    v6_network_range=$(v6_private_cidr_range "$cidr") || {
+      v6_cleanup_seen_dir "$v6_seen_dir"
+      return 1
+    }
+    v6_network_start=${v6_network_range%%|*}
+    v6_network_end=${v6_network_range#*|}
+    if awk -F'|' -v start="$v6_network_start" -v end="$v6_network_end" '
+      $1 <= end && start <= $2 { overlap=1 }
+      END { exit !overlap }
+    ' "$v6_ranges_file"; then
+      v6_cleanup_seen_dir "$v6_seen_dir"
+      return 1
+    else
+      v6_overlap_status=$?
+      [ "$v6_overlap_status" -eq 1 ] || {
+        v6_cleanup_seen_dir "$v6_seen_dir"
+        return 1
+      }
+    fi
     if v6_seen_key "$v6_seen_file" "IFACE|$iface"; then
       v6_cleanup_seen_dir "$v6_seen_dir"
       return 1
@@ -651,6 +857,10 @@ v6_iter_networks() {
       v6_cleanup_seen_dir "$v6_seen_dir"
       return 1
     }
+    printf '%s|%s\n' "$v6_network_start" "$v6_network_end" >>"$v6_ranges_file" || {
+      v6_cleanup_seen_dir "$v6_seen_dir"
+      return 1
+    }
     printf '%s|%s\n' "$iface" "$cidr"
   done <"$v6_parsed_file" || {
     v6_cleanup_seen_dir "$v6_seen_dir"
@@ -660,12 +870,13 @@ v6_iter_networks() {
 }
 
 v6_require_main_config() {
-  [ "${V6_WAN_IF+x}" = x ] && [ "${V6_TUN_IF+x}" = x ] && [ "${V6_STATIC_V4+x}" = x ] && [ "${V6_BR_V6+x}" = x ] && [ "${V6_IID+x}" = x ] && [ "${V6_TUN_MTU+x}" = x ] && [ "${V6_TCP_MSS+x}" = x ] && [ "${V6_ROUTE_TABLE+x}" = x ] && [ "${V6_RULE_PREF_BASE+x}" = x ] && [ "${V6_WATCH_INTERVAL_SECONDS+x}" = x ] && [ "${V6_UPDATE_INTERVAL_SECONDS+x}" = x ] && [ "${V6_OUTER_IPIP_ALLOW+x}" = x ] && [ "${V6_NETWORKS_CONFIG+x}" = x ]
+  [ "${V6_WAN_IF+x}" = x ] && [ "${V6_TUN_IF+x}" = x ] && [ "${V6_ENDPOINT_IF+x}" = x ] && [ "${V6_STATIC_V4+x}" = x ] && [ "${V6_BR_V6+x}" = x ] && [ "${V6_IID+x}" = x ] && [ "${V6_TUN_MTU+x}" = x ] && [ "${V6_TCP_MSS+x}" = x ] && [ "${V6_ROUTE_TABLE+x}" = x ] && [ "${V6_RULE_PREF_BASE+x}" = x ] && [ "${V6_WATCH_INTERVAL_SECONDS+x}" = x ] && [ "${V6_UPDATE_INTERVAL_SECONDS+x}" = x ] && [ "${V6_OUTER_IPIP_ALLOW+x}" = x ] && [ "${V6_NETWORKS_CONFIG+x}" = x ]
 }
 
 v6_validate_main_config() {
   v6_require_main_config || return 1
-  v6_is_iface_value "$V6_WAN_IF" && v6_is_iface_value "$V6_TUN_IF" && [ -n "$V6_IID" ] || return 1
+  v6_is_iface_value "$V6_WAN_IF" && v6_is_iface_value "$V6_TUN_IF" &&
+    v6_is_iface_value "$V6_ENDPOINT_IF" && [ -n "$V6_IID" ] || return 1
   v6_is_ipv4 "$V6_STATIC_V4" || return 1
   v6_is_ipv6 "$V6_BR_V6" || return 1
   case $V6_IID in
@@ -674,6 +885,7 @@ v6_validate_main_config() {
   esac
   v6_is_uint "$V6_TUN_MTU" && [ "$V6_TUN_MTU" -ge 1280 ] && [ "$V6_TUN_MTU" -le 1500 ] || return 1
   v6_is_uint "$V6_TCP_MSS" && [ "$V6_TCP_MSS" -ge 536 ] && [ "$V6_TCP_MSS" -le 1460 ] || return 1
+  [ "$V6_TCP_MSS" -le $((V6_TUN_MTU - 40)) ] || return 1
   v6_is_uint "$V6_ROUTE_TABLE" && [ "$V6_ROUTE_TABLE" -ge 1 ] && [ "$V6_ROUTE_TABLE" -le 4294967295 ] || return 1
   v6_is_uint "$V6_RULE_PREF_BASE" && [ "$V6_RULE_PREF_BASE" -ge 1 ] && [ "$V6_RULE_PREF_BASE" -le 32700 ] || return 1
   v6_is_uint "$V6_WATCH_INTERVAL_SECONDS" && [ "$V6_WATCH_INTERVAL_SECONDS" -ge 1 ] || return 1
@@ -690,25 +902,25 @@ v6_validate_main_config() {
 }
 
 v6_detect_nat_chain() {
-  if v6_xtables_call "$V6_IPTABLES_CMD" -t nat -S UBIOS_POSTROUTING_USER_HOOK >/dev/null 2>&1; then
-    printf '%s\n' UBIOS_POSTROUTING_USER_HOOK
-  else
-    v6_chain_status=$?
-    [ "$v6_chain_status" -eq 1 ] || return "$v6_chain_status"
-    v6_xtables_call "$V6_IPTABLES_CMD" -t nat -S POSTROUTING >/dev/null 2>&1 || return 1
-    printf '%s\n' POSTROUTING
-  fi
+  v6_xtables_call "$V6_IPTABLES_CMD" -t nat -S UBIOS_POSTROUTING_USER_HOOK >/dev/null 2>&1 || return 1
+  v6_nat_parent=$(v6_xtables_call "$V6_IPTABLES_CMD" -t nat -S UBIOS_POSTROUTING_JUMP 2>/dev/null) || return 1
+  [ "$(printf '%s\n' "$v6_nat_parent" | awk '
+    NF == 4 && $1 == "-A" && $2 == "UBIOS_POSTROUTING_JUMP" &&
+      $3 == "-j" && $4 == "UBIOS_POSTROUTING_USER_HOOK" { count++ }
+    END { print count + 0 }
+  ')" -eq 1 ] || return 1
+  printf '%s\n' UBIOS_POSTROUTING_USER_HOOK
 }
 
 v6_detect_v6_input_chain() {
-  if v6_xtables_call "$V6_IP6TABLES_CMD" -S UBIOS_INPUT_USER_HOOK >/dev/null 2>&1; then
-    printf '%s\n' UBIOS_INPUT_USER_HOOK
-  else
-    v6_chain_status=$?
-    [ "$v6_chain_status" -eq 1 ] || return "$v6_chain_status"
-    v6_xtables_call "$V6_IP6TABLES_CMD" -S INPUT >/dev/null 2>&1 || return 1
-    printf '%s\n' INPUT
-  fi
+  v6_xtables_call "$V6_IP6TABLES_CMD" -S UBIOS_INPUT_USER_HOOK >/dev/null 2>&1 || return 1
+  v6_input_parent=$(v6_xtables_call "$V6_IP6TABLES_CMD" -S UBIOS_INPUT_JUMP 2>/dev/null) || return 1
+  [ "$(printf '%s\n' "$v6_input_parent" | awk '
+    NF == 4 && $1 == "-A" && $2 == "UBIOS_INPUT_JUMP" &&
+      $3 == "-j" && $4 == "UBIOS_INPUT_USER_HOOK" { count++ }
+    END { print count + 0 }
+  ')" -eq 1 ] || return 1
+  printf '%s\n' UBIOS_INPUT_USER_HOOK
 }
 
 v6_has_managed_comment() {

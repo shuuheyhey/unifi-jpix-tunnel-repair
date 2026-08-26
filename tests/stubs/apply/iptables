@@ -86,7 +86,9 @@ case $operation in
     if [ "$#" -eq 4 ]; then
       chain=$4
       has_chain "$table" "$chain" || exit 1
-      if [ -f "$custom_output" ]; then
+      if [ "$table|$chain" = 'nat|UBIOS_POSTROUTING_JUMP' ] && [ -f "$STUB_STATE_DIR/nat-parent.rules" ]; then
+        cat "$STUB_STATE_DIR/nat-parent.rules"
+      elif [ -f "$custom_output" ]; then
         awk -v chain="$chain" '$1 == "-A" && $2 == chain { print }' "$custom_output"
       else
         awk -F'|' -v table="$table" -v chain="$chain" '$1 == table && $2 == chain { print "-A " chain " " $3 }' "$state" |

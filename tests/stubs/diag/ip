@@ -13,6 +13,10 @@ set -eu
 } >>"$STUB_LOG"
 
 case $* in
+  '-d link show type bridge')
+    printf '10: br0: <BROADCAST,MULTICAST,UP> mtu 1500 state UP\n'
+    printf '11: br10: <BROADCAST,MULTICAST,UP> mtu 1500 state UP\n'
+    ;;
   'link show dev eth9'|'-o link show dev eth9')
     if [ "${DIAG_WAN_DOWN:-0}" = 1 ]; then
       printf '2: eth9: <BROADCAST,MULTICAST> mtu 1500 state DOWN mode DEFAULT\n'
@@ -53,24 +57,41 @@ case $* in
       printf 'fe80::/64 dev eth9 metric 256\n'
     fi
     ;;
+  '-6 route show table all proto kernel')
+    case ${DIAG_ENDPOINT_PREFIX_MODE:-single} in
+      single)
+        printf '2001:db8:1234:20::/64 dev br0 proto kernel metric 256\n'
+        printf '2001:db8:1234:40::/64 dev br10 proto kernel metric 256\n'
+        ;;
+      none)
+        printf '2001:db8:1234:40::/64 dev br10 proto kernel metric 256\n'
+        ;;
+      multiple)
+        printf '2001:db8:1234:20::/64 dev br0 proto kernel metric 256\n'
+        printf '2001:db8:1234:21::/64 dev br0 proto kernel metric 256\n'
+        ;;
+      error) exit 1 ;;
+      *) exit 99 ;;
+    esac
+    ;;
   '-d -6 tunnel show')
     case ${DIAG_TUNNEL_LIST_MODE:-single} in
       single)
-        printf 'ip6tnl6: gre6 remote 2001:db8:ffff::1 local 2001:db8:1234:30:cb:71:2a00:9 encaplimit 4 hoplimit 64 tclass 0x00 flowlabel 0x00000\n'
-        printf 'ip6tnl7: ipip6 remote 2001:db8:ffff::1 local 2001:db8:1234:30:cb:71:2a00:0 encaplimit 4 hoplimit 64 tclass 0x00 flowlabel 0x00000\n'
+        printf 'ip6tnl6: gre6 remote 2001:db8:ffff::1 local 2001:db8:1234:20:cb:71:2a00:9 encaplimit 4 hoplimit 64 tclass 0x00 flowlabel 0x00000\n'
+        printf 'ip6tnl7: ipip6 remote 2001:db8:ffff::1 local 2001:db8:1234:20:cb:71:2a00:0 encaplimit 4 hoplimit 64 tclass 0x00 flowlabel 0x00000\n'
         ;;
       native-any)
-        printf 'ip6tnl3: any/ipv6 remote 2001:db8:ffff::1 local 2001:db8:1234:30:cb:71:2a00:0 encaplimit 4 hoplimit 64 tclass 0x00 flowlabel 0x00000\n'
+        printf 'ip6tnl3: any/ipv6 remote 2001:db8:ffff::1 local 2001:db8:1234:20:cb:71:2a00:0 encaplimit 4 hoplimit 64 tclass 0x00 flowlabel 0x00000\n'
         ;;
       post-apply)
-        printf 'ip6tnl3: ip/ipv6 remote 2001:db8:ffff::1 local 2001:db8:1234:30:cb:71:2a00:0 encaplimit 4 hoplimit 64 tclass 0x00 flowlabel 0x00000\n'
+        printf 'ip6tnl3: ip/ipv6 remote 2001:db8:ffff::1 local 2001:db8:1234:20:cb:71:2a00:0 encaplimit 4 hoplimit 64 tclass 0x00 flowlabel 0x00000\n'
         ;;
       multiple)
-        printf 'ip6tnl7: ipip6 remote 2001:db8:ffff::1 local 2001:db8:1234:30:cb:71:2a00:0 encaplimit 4 hoplimit 64 tclass 0x00 flowlabel 0x00000\n'
-        printf 'ip6tnl8: ipip6 remote 2001:0db8:ffff:0000:0000:0000:0000:0001 local 2001:db8:1234:30:cb:71:2a00:1 encaplimit 4 hoplimit 64 tclass 0x00 flowlabel 0x00000\n'
+        printf 'ip6tnl7: ipip6 remote 2001:db8:ffff::1 local 2001:db8:1234:20:cb:71:2a00:0 encaplimit 4 hoplimit 64 tclass 0x00 flowlabel 0x00000\n'
+        printf 'ip6tnl8: ipip6 remote 2001:0db8:ffff:0000:0000:0000:0000:0001 local 2001:db8:1234:20:cb:71:2a00:1 encaplimit 4 hoplimit 64 tclass 0x00 flowlabel 0x00000\n'
         ;;
       none)
-        printf 'ip6tnl9: ipip6 remote 2001:db8:eeee::1 local 2001:db8:1234:30:cb:71:2a00:2 encaplimit 4 hoplimit 64 tclass 0x00 flowlabel 0x00000\n'
+        printf 'ip6tnl9: ipip6 remote 2001:db8:eeee::1 local 2001:db8:1234:20:cb:71:2a00:2 encaplimit 4 hoplimit 64 tclass 0x00 flowlabel 0x00000\n'
         ;;
       *) exit 99 ;;
     esac
@@ -78,21 +99,21 @@ case $* in
   '-d -6 tunnel show ip6tnl1')
     [ "${DIAG_TUNNEL_ABSENT:-0}" != 1 ] || exit 1
     if [ "${DIAG_TUNNEL_WRONG_MODE:-0}" = 1 ]; then
-      printf 'ip6tnl1: gre6 remote 2001:db8:ffff::1 local 2001:db8:1234:30:cb:71:2a00:0 encaplimit 4 hoplimit 64 tclass 0x00 flowlabel 0x00000\n'
+      printf 'ip6tnl1: gre6 remote 2001:db8:ffff::1 local 2001:db8:1234:20:cb:71:2a00:0 encaplimit 4 hoplimit 64 tclass 0x00 flowlabel 0x00000\n'
     else
-      printf 'ip6tnl1: ipip6 remote 2001:db8:ffff::1 local 2001:db8:1234:30:cb:71:2a00:0 encaplimit 4 hoplimit 64 tclass 0x00 flowlabel 0x00000\n'
+      printf 'ip6tnl1: ipip6 remote 2001:db8:ffff::1 local 2001:db8:1234:20:cb:71:2a00:0 encaplimit 4 hoplimit 64 tclass 0x00 flowlabel 0x00000\n'
     fi
     ;;
   '-d -6 tunnel show ip6tnl7')
-    printf 'ip6tnl7: ipip6 remote 2001:db8:ffff::1 local 2001:db8:1234:30:cb:71:2a00:0 encaplimit 4 hoplimit 64 tclass 0x00 flowlabel 0x00000\n'
+    printf 'ip6tnl7: ipip6 remote 2001:db8:ffff::1 local 2001:db8:1234:20:cb:71:2a00:0 encaplimit 4 hoplimit 64 tclass 0x00 flowlabel 0x00000\n'
     ;;
   '-d -6 tunnel show ip6tnl3')
     case ${DIAG_TUNNEL_LIST_MODE:-native-any} in
       native-any)
-        printf 'ip6tnl3: any/ipv6 remote 2001:db8:ffff::1 local 2001:db8:1234:30:cb:71:2a00:0 encaplimit 4 hoplimit 64 tclass 0x00 flowlabel 0x00000\n'
+        printf 'ip6tnl3: any/ipv6 remote 2001:db8:ffff::1 local 2001:db8:1234:20:cb:71:2a00:0 encaplimit 4 hoplimit 64 tclass 0x00 flowlabel 0x00000\n'
         ;;
       post-apply)
-        printf 'ip6tnl3: ip/ipv6 remote 2001:db8:ffff::1 local 2001:db8:1234:30:cb:71:2a00:0 encaplimit 4 hoplimit 64 tclass 0x00 flowlabel 0x00000\n'
+        printf 'ip6tnl3: ip/ipv6 remote 2001:db8:ffff::1 local 2001:db8:1234:20:cb:71:2a00:0 encaplimit 4 hoplimit 64 tclass 0x00 flowlabel 0x00000\n'
         ;;
       *) exit 99 ;;
     esac
@@ -127,10 +148,16 @@ case $* in
       printf '198.51.100.1 dev eth8 note UPDATE_PASSWORD=route-secret-MUST-NOT-LEAK\n'
     fi
     ;;
+  '-4 route show dev br0 scope link')
+    printf '192.168.20.0/24 proto kernel scope link src 192.168.20.1\n'
+    ;;
+  '-4 route show dev br10 scope link')
+    printf '192.168.10.0/24 proto kernel scope link src 192.168.10.1\n'
+    ;;
   '-4 rule show')
     printf '0: from all lookup local\n'
-    printf '10000: from 192.168.10.0/24 lookup 300\n'
-    printf '10001: from 192.168.20.0/24 lookup 300\n'
+    printf '10000: from 192.168.20.0/24 iif br0 lookup 300\n'
+    printf '10001: from 192.168.10.0/24 iif br10 lookup 300\n'
     printf '32766: from all lookup main\n'
     ;;
   'link show dev br0')

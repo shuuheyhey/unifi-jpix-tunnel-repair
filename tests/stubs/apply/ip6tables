@@ -80,7 +80,9 @@ case $operation in
     if [ "$#" -eq 2 ]; then
       chain=$2
       has_chain "$chain" || exit 1
-      if [ -f "$custom_output" ]; then
+      if [ "$chain" = UBIOS_INPUT_JUMP ] && [ -f "$STUB_STATE_DIR/v6-parent.rules" ]; then
+        cat "$STUB_STATE_DIR/v6-parent.rules"
+      elif [ -f "$custom_output" ]; then
         awk -v chain="$chain" '$1 == "-A" && $2 == chain { print }' "$custom_output"
       else
         awk -F'|' -v chain="$chain" '$1 == chain { print "-A " chain " " $2 }' "$state"

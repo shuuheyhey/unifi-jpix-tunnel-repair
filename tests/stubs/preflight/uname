@@ -1,0 +1,7 @@
+#!/bin/sh
+printf 'uname %s\n' "$*" >>"$STUB_LOG"
+[ "$*" = -r ] || exit 1
+case ${PREFLIGHT_STUB_MODE:-ready} in
+  unsupported-kernel) printf '6.99.0-unknown\n' ;;
+  *) printf '4.19.152-ui-alpine\n' ;;
+esac

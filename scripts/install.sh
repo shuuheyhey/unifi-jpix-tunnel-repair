@@ -119,6 +119,14 @@ for source in "$SOURCE_ROOT"/config/*.example; do
   secure_existing_file "$destination" 600 || { printf 'failed to secure installed config example\n' >&2; exit 2; }
 done
 
+platform_matrix=$SOURCE_ROOT/config/verified-platforms.conf
+platform_destination=$DEPLOY_ROOT/config/verified-platforms.conf
+if [ -e "$platform_destination" ] || [ -L "$platform_destination" ]; then
+  secure_existing_file "$platform_destination" 600 || { printf 'unsafe existing platform matrix destination\n' >&2; exit 2; }
+fi
+install -m 600 "$platform_matrix" "$platform_destination"
+secure_existing_file "$platform_destination" 600 || { printf 'failed to secure installed platform matrix\n' >&2; exit 2; }
+
 for source in "$SOURCE_ROOT"/systemd/*; do
   destination=$UNIT_ROOT/${source##*/}
   if [ -e "$destination" ] || [ -L "$destination" ]; then

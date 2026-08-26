@@ -8,8 +8,9 @@ UniFi OSが管理するnative IPv6接続を維持しながら、JPIX「v6プラ�
 
 ## 前提
 
-- UniFiがBRをremote endpointとするIPIP6トンネルを作成済みである
+- UniFiがBRをremote endpointとするIPIP6トンネルを作成済みであり、共有所有の制約を理解している
 - WANでnative IPv6が利用でき、BRへのroute sourceを取得できる
+- delegated LAN `/64`のkernel routeを一意に持つLAN bridgeを`ENDPOINT_IF`として明示できる
 - 契約で固定IPv4、BR IPv6、interface identifierが提供されている
 - 固定IPv4へ送るLAN interfaceとCIDRを明示できる
 - root以外が配置済みscript、config、stateを書き換えられない
@@ -18,7 +19,7 @@ UniFi OSが管理するnative IPv6接続を維持しながら、JPIX「v6プラ�
 
 ## コンポーネント
 
-1. `preflight`はconfigを読まず、OS系列、依存command、IPv6、PD route、IPIP6候補、UniFi user chainを共有安全に観測します。
+1. `preflight`はconfigを読まず、exact platform tuple、legacy backend、IPv6、PD route、IPIP6候補、UniFi user chainと親jumpを共有安全に観測します。
 2. `diag`はconfigを検証し、BR route、WAN、対象トンネル、予約table、policy rule、netfilterを読み取ります。stdoutは共有安全で、完全値は明示指定した新規mode `0600` fileだけへ出力します。
 3. `apply`は現在状態を完全に検査してから、固定IPv4、endpoint、専用route table、policy rule、SNAT、MSS、任意のouter IPIP許可を収束させます。
 4. `trigger`はnetlink変化を監視し、endpoint変更時に再適用とprovider通知を行います。
@@ -27,17 +28,18 @@ UniFi OSが管理するnative IPv6接続を維持しながら、JPIX「v6プラ�
 
 ## データフロー
 
-1. BRへのIPv6 routeからsource addressを選びます。
-2. source addressの上位64bitと契約IIDからローカルトンネルendpointを導出します。
-3. 設定されたトンネルがBR remote、IPIP6 mode、意図したIPv4を持つことを確認します。
-4. 対象LANだけを専用route tableへ送り、固定IPv4でSNATします。
-5. TCP MSSを往復方向で調整し、必要な場合だけouter IPIP accept ruleを管理します。
-6. endpoint変更時だけprovider通知を行います。
+1. BRへのIPv6 routeからunderlay deviceとsource addressを検証します。このsource prefixをendpointへ流用しません。
+2. 明示したLAN bridge `ENDPOINT_IF`の一意なglobal kernel `/64`と契約IIDからローカルトンネルendpointを導出します。WANや非bridge interfaceは拒否します。
+3. 設定されたトンネルがBR remote、許可されたattribute shape、IPIP6 mode、意図したIPv4を持つことを確認します。
+4. 対象LANだけを`from CIDR iif IFACE lookup TABLE`で専用route tableへ送り、固定IPv4でSNATします。
+5. `TUN_MTU + 40 <= underlay MTU`と`TCP_MSS <= TUN_MTU - 40`を検証し、TCP MSSを往復方向で調整します。
+6. UniFi parent chainから一意に接続されたuser hookだけを使用し、global chainへfallbackしません。
+7. endpoint変更時だけprovider通知を行います。
 
 ## systemdの起動関係
 
 - `apply.service`はWAN readinessを待ってからapplyし、成功後に更新通知を試行します。
-- `trigger.service`と`watch.service`は`apply.service`を必須とします。
+- `trigger.service`と`watch.service`は`apply.service`を必須とします。ただしIssue #2の未完了gateがある現在はenableしません。
 - `update.timer`は1分ごとにdue判定を起動します。実際の通知間隔は`UPDATE_INTERVAL_SECONDS`で制御します。
 - インストーラーはunitを配置するだけで、enableやstartを行いません。
 

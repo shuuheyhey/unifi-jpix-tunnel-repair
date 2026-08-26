@@ -6,7 +6,8 @@ ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 
 for path in README.md LICENSE NOTICE.md SECURITY.md CONTRIBUTING.md .gitignore \
   docs/architecture.md docs/configuration.md docs/installation.md docs/rollback.md \
-  docs/service-and-protocols.md docs/troubleshooting.md docs/validation.md \
+  docs/service-and-protocols.md docs/troubleshooting.md docs/udm-pro-setup.md docs/validation.md \
+  config/verified-platforms.conf \
   config/gateway.conf.example config/routed-networks.conf.example config/provider-update.conf.example \
   scripts/install.sh \
   scripts/unifi-jpix-tunnel-repair-preflight.sh \
@@ -31,6 +32,15 @@ done
 
 test_start "main example contains route table"
 assert_contains "$(cat "$ROOT/config/gateway.conf.example" 2>/dev/null || true)" 'ROUTE_TABLE=300'
+test_start 'main example requires an explicit delegated-prefix interface'
+assert_contains "$(cat "$ROOT/config/gateway.conf.example" 2>/dev/null || true)" 'ENDPOINT_IF=replace-with-delegated-prefix-interface'
+
+runbook=$(cat "$ROOT/docs/udm-pro-setup.md" 2>/dev/null || true)
+for required_runbook_text in 'git archive' 'sha256sum' 'scp' '--discover' 'systemd-run' \
+  'unifi-jpix-tunnel-repair-update.sh --force' 'automationを有効化しない' '旧実装'; do
+  test_start "UDM runbook contains <$required_runbook_text>"
+  assert_contains "$runbook" "$required_runbook_text"
+done
 test_start 'HTTPS is the update example default'
 assert_contains "$(cat "$ROOT/config/provider-update.conf.example")" 'UPDATE_URL=https://'
 

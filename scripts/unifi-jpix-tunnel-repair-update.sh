@@ -37,10 +37,11 @@ unset line key value v6_update_line v6_update_key v6_update_value
 unset v6_main_file v6_networks_file v6_seen_file v6_seen_status v6_update_seen_status
 unset v6_canonical_dir v6_physical_dir
 unset V6_CURL_ESCAPED_URL V6_CURL_ESCAPED_USERNAME V6_CURL_ESCAPED_PASSWORD
-unset SOURCE_V6 LOCAL_V6 expanded_endpoint REDACTED_ENDPOINT NOW
+unset SOURCE_V6 ROUTE_SOURCE ENDPOINT_PREFIX LOCAL_V6 expanded_endpoint REDACTED_ENDPOINT NOW
 unset source_listing source_line source_kind source_token source_rest source_prefix
 unset source_address_with_zone source_address source_zone source_expanded source_match source_status elapsed
 v6_clear_ipv6_helper_scratch
+v6_clear_endpoint_helper_scratch
 
 V6PLUS_STATE_DIR=${V6PLUS_STATE_DIR:-/data/unifi-jpix-tunnel-repair/state}
 V6PLUS_LOCK_DIR=${V6PLUS_LOCK_DIR:-/run/unifi-jpix-tunnel-repair.lock}
@@ -226,9 +227,11 @@ LOCK_HELD=1
 if ! v6_acquire_lock "$V6PLUS_LOCK_DIR"; then LOCK_HELD=0; runtime_error lock; exit 1; fi
 
 ensure_state_dir || { runtime_error state_dir; exit 1; }
-SOURCE_V6=$(v6_route_source_v6 "$V6_BR_V6") || { runtime_error route_source; exit 1; }
-LOCAL_V6=$(v6_compose_local_v6 "$SOURCE_V6" "$V6_IID") || { runtime_error local_source; exit 1; }
-unset SOURCE_V6
+ROUTE_SOURCE=$(v6_route_source_v6 "$V6_BR_V6") || { runtime_error route_source; exit 1; }
+v6_expand_ipv6 "$ROUTE_SOURCE" >/dev/null || { runtime_error route_source; exit 1; }
+ENDPOINT_PREFIX=$(v6_endpoint_prefix64 "$V6_ENDPOINT_IF") || { runtime_error endpoint_prefix; exit 1; }
+LOCAL_V6=$(v6_compose_local_v6 "$ENDPOINT_PREFIX" "$V6_IID") || { runtime_error local_source; exit 1; }
+unset ROUTE_SOURCE ENDPOINT_PREFIX
 if exact_source_present; then
   :
 else

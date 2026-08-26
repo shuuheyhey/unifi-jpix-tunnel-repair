@@ -75,6 +75,15 @@ signal_after() {
 }
 
 case "$*" in
+  '-d link show type bridge')
+    printf '10: br0: <BROADCAST,MULTICAST,UP> mtu 1500 state UP\n'
+    printf '11: br10: <BROADCAST,MULTICAST,UP> mtu 1500 state UP\n'
+    ;;
+  '-6 route show table all proto kernel')
+    endpoint_prefix=$(cat "$STUB_STATE_DIR/endpoint6.prefix")
+    printf 'anycast %s/64 dev br0 proto kernel metric 0\n' "$endpoint_prefix"
+    printf '2001:db8:1234:30::/64 dev br10 proto kernel metric 256\n'
+    ;;
   '-6 route get '*)
     destination=$4
     [ -f "$STUB_STATE_DIR/route6.missing" ] && exit 1
@@ -162,6 +171,12 @@ case "$*" in
       printf '192.0.2.1 dev %s src %s\n' "$tunnel_if" "$source"
     fi
     ;;
+  '-4 route show dev br0 scope link')
+    printf '192.168.20.0/24 proto kernel scope link src 192.168.20.1\n'
+    ;;
+  '-4 route show dev br10 scope link')
+    printf '192.168.10.0/24 proto kernel scope link src 192.168.10.1\n'
+    ;;
   '-4 route show table '*)
     [ "$#" -eq 5 ] || exit 2
     if [ -f "$STUB_STATE_DIR/route.s-output" ]; then
@@ -198,19 +213,19 @@ case "$*" in
     mv "$routes.tmp" "$routes"
     ;;
   '-4 rule show')
-    awk -F'|' '{ print $1 ": from all iif " $2 " lookup " $3 }' "$rules"
+    awk -F'|' '{ print $1 ": from " $2 " iif " $3 " lookup " $4 }' "$rules"
     ;;
   '-4 rule add pref '*)
-    [ "$#" -eq 9 ] && [ "$6" = iif ] && [ "$8" = lookup ] || exit 2
+    [ "$#" -eq 11 ] && [ "$6" = from ] && [ "$8" = iif ] && [ "${10}" = lookup ] || exit 2
     if [ "${STUB_FAIL_RULE_PREF:-}" = "$5" ]; then exit 70; fi
-    stub_rule="$5|$7|$9"
+    stub_rule="$5|$7|$9|${11}"
     awk -F'|' -v pref="$5" -v record="$stub_rule" '!inserted && $1 > pref { print record; inserted=1 } { print } END { if (!inserted) print record }' "$rules" >"$rules.tmp"
     mv "$rules.tmp" "$rules"
     ;;
   '-4 rule del pref '*)
-    [ "$#" -eq 9 ] && [ "$6" = iif ] && [ "$8" = lookup ] || exit 2
-    has_line "$rules" "$5|$7|$9" || exit 2
-    del_one_line "$rules" "$5|$7|$9"
+    [ "$#" -eq 11 ] && [ "$6" = from ] && [ "$8" = iif ] && [ "${10}" = lookup ] || exit 2
+    has_line "$rules" "$5|$7|$9|${11}" || exit 2
+    del_one_line "$rules" "$5|$7|$9|${11}"
     ;;
   *)
     printf 'unsupported ip invocation: %s\n' "$*" >&2

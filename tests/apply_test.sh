@@ -11,19 +11,21 @@ trap 'chmod -R u+rwX "$TMP" 2>/dev/null || :; rm -rf "$TMP"' EXIT HUP INT TERM
 mkdir -p "$TMP"
 
 APPLY_PATH=$ROOT/tests/stubs/apply:/opt/homebrew/opt/coreutils/libexec/gnubin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-LOCAL_V6=2001:0db8:1234:0030:00cb:0071:2a00:0000
-NEXT_LOCAL_V6=2001:0db8:1234:0031:00cb:0071:2a00:0000
+LOCAL_V6=2001:0db8:1234:0020:00cb:0071:2a00:0000
+NEXT_LOCAL_V6=2001:0db8:1234:0021:00cb:0071:2a00:0000
 export V6PLUS_ALLOW_DOCUMENTATION_ADDRESSES=1
 export V6PLUS_ALLOW_NONROOT=1
 export V6PLUS_LIB="$ROOT/scripts/unifi-jpix-tunnel-repair-lib.sh"
 export V6PLUS_ROOT="$ROOT"
 export V6PLUS_NOW=1724241600
+export V6PLUS_TEST_PLATFORM_VERIFIED=1
 
 write_config() {
   outer=$1
   cat >"$CONFIG/gateway.conf" <<EOF
 WAN_IF=eth9
 TUN_IF=ip6tnl1
+ENDPOINT_IF=br0
 STATIC_V4=203.0.113.42
 BR_V6=2001:db8:ffff::1
 IID=00cb:0071:2a00:0000
@@ -70,14 +72,18 @@ br10|yes|1500
 eth0|yes|1500
 EOF
   printf '2001:db8:1234:30:abcd::1\n' >"$STUB_STATE_DIR/route6.source"
+  printf '2001:db8:1234:20::\n' >"$STUB_STATE_DIR/endpoint6.prefix"
   cat >"$STUB_STATE_DIR/iptables.chains" <<'EOF'
 nat|UBIOS_POSTROUTING_USER_HOOK
+nat|UBIOS_POSTROUTING_JUMP
 nat|POSTROUTING
 mangle|FORWARD
 mangle|OUTPUT
 EOF
   : >"$STUB_STATE_DIR/iptables.state"
-  printf 'UBIOS_INPUT_USER_HOOK\nINPUT\n' >"$STUB_STATE_DIR/ip6tables.chains"
+  printf 'UBIOS_INPUT_USER_HOOK\nUBIOS_INPUT_JUMP\nINPUT\n' >"$STUB_STATE_DIR/ip6tables.chains"
+  printf '%s\n' '-A UBIOS_POSTROUTING_JUMP -j UBIOS_POSTROUTING_USER_HOOK' >"$STUB_STATE_DIR/nat-parent.rules"
+  printf '%s\n' '-A UBIOS_INPUT_JUMP -j UBIOS_INPUT_USER_HOOK' >"$STUB_STATE_DIR/v6-parent.rules"
   : >"$STUB_STATE_DIR/ip6tables.state"
   : >"$STUB_STATE_DIR/ip6tables-extra.state"
   : >"$STUB_STATE_DIR/services.active"
@@ -192,10 +198,50 @@ assert_inventory_rejected_before_mutation() {
   assert_eq "$(physical_state)$(runtime_state)" "$inventory_before_physical$inventory_before_runtime"
 }
 
+new_case unverified-platform
+unset V6PLUS_TEST_PLATFORM_VERIFIED
+assert_rejected_unchanged 'unverified platform tuple'
+V6PLUS_TEST_PLATFORM_VERIFIED=1
+export V6PLUS_TEST_PLATFORM_VERIFIED
+
+new_case underlay-too-small
+sed 's/^eth9|yes|1500$/eth9|yes|1499/' "$STUB_STATE_DIR/links.state" >"$STUB_STATE_DIR/links.tmp"
+mv "$STUB_STATE_DIR/links.tmp" "$STUB_STATE_DIR/links.state"
+assert_rejected_unchanged 'tunnel MTU plus IPv6 outer header larger than underlay MTU'
+
+for unsafe_tunnel_attribute in 'dev eth9' 'fwmark 0x1' 'mystery value'; do
+  new_case "unsafe-tunnel-$(printf '%s' "$unsafe_tunnel_attribute" | tr ' ' '-')"
+  printf 'ip6tnl1: any/ipv6 remote 2001:db8:ffff::1 local 2001:db8:1234:20:cb:71:2a00:0 %s\n' \
+    "$unsafe_tunnel_attribute" >"$STUB_STATE_DIR/tunnel.show-output"
+  assert_rejected_unchanged "unsupported tunnel attribute <$unsafe_tunnel_attribute>"
+done
+
+for nat_parent_mode in missing duplicate detached; do
+  new_case "nat-parent-$nat_parent_mode"
+  case $nat_parent_mode in
+    missing) : >"$STUB_STATE_DIR/nat-parent.rules" ;;
+    duplicate) printf '%s\n%s\n' '-A UBIOS_POSTROUTING_JUMP -j UBIOS_POSTROUTING_USER_HOOK' '-A UBIOS_POSTROUTING_JUMP -j UBIOS_POSTROUTING_USER_HOOK' >"$STUB_STATE_DIR/nat-parent.rules" ;;
+    detached) printf '%s\n' '-A UBIOS_POSTROUTING_JUMP -j SOME_OTHER_CHAIN' >"$STUB_STATE_DIR/nat-parent.rules" ;;
+  esac
+  assert_rejected_unchanged "$nat_parent_mode UniFi NAT parent jump"
+done
+
+for v6_parent_mode in missing duplicate detached; do
+  new_case "v6-parent-$v6_parent_mode"
+  case $v6_parent_mode in
+    missing) : >"$STUB_STATE_DIR/v6-parent.rules" ;;
+    duplicate) printf '%s\n%s\n' '-A UBIOS_INPUT_JUMP -j UBIOS_INPUT_USER_HOOK' '-A UBIOS_INPUT_JUMP -j UBIOS_INPUT_USER_HOOK' >"$STUB_STATE_DIR/v6-parent.rules" ;;
+    detached) printf '%s\n' '-A UBIOS_INPUT_JUMP -j SOME_OTHER_CHAIN' >"$STUB_STATE_DIR/v6-parent.rules" ;;
+  esac
+  assert_rejected_unchanged "$v6_parent_mode UniFi IPv6 input parent jump"
+done
+
 # Case 1: exact two-VLAN convergence, snapshot, router route, and modes.
 new_case two-vlans
 run_apply apply
 assert_run_success 'two-VLAN apply converges'
+test_start 'apply derives the endpoint from ENDPOINT_IF instead of BR route source'
+assert_contains "$(cat "$STUB_STATE_DIR/tunnel.state")" 'TUN_LOCAL=2001:0db8:1234:0020:00cb:0071:2a00:0000'
 test_start 'original UniFi tunnel snapshot is exact'
 assert_eq "$(cat "$STATE/original-tunnel.env")" "$(cat "$ROOT/tests/fixtures/apply/original.state")"
 test_start 'original snapshot is private'
@@ -230,8 +276,10 @@ assert_eq "$(cat "$STUB_STATE_DIR/routes.state")" "300|default|ip6tnl1
 300|192.168.20.0/24|br0
 300|192.168.10.0/24|br10"
 test_start 'policy rules use the reserved ordered preferences'
-assert_eq "$(cat "$STUB_STATE_DIR/rules.state")" "10000|br0|300
-10001|br10|300"
+assert_eq "$(cat "$STUB_STATE_DIR/rules.state")" "10000|192.168.20.0/24|br0|300
+10001|192.168.10.0/24|br10|300"
+test_start 'policy rules are source and ingress-interface scoped'
+assert_contains "$(cat "$STUB_LOG")" 'ip -4 rule add pref 10000 from 192.168.20.0/24 iif br0 lookup 300'
 test_start 'SNAT and three MSS rules include the exact management tag'
 assert_eq "$(cat "$STUB_STATE_DIR/iptables.state")" "nat|UBIOS_POSTROUTING_USER_HOOK|-s 192.168.20.0/24 -o ip6tnl1 -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source 203.0.113.42
 nat|UBIOS_POSTROUTING_USER_HOOK|-s 192.168.10.0/24 -o ip6tnl1 -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source 203.0.113.42
@@ -295,7 +343,7 @@ V6PLUS_NOW=1724241600
 export V6PLUS_NOW
 
 # Case 3: stale allowlist entries are deleted exactly and unknowns survive.
-printf '20000|user0|main\n' >>"$STUB_STATE_DIR/rules.state"
+printf '20000|10.0.0.0/8|user0|main\n' >>"$STUB_STATE_DIR/rules.state"
 printf 'nat|UBIOS_POSTROUTING_USER_HOOK|-s 10.0.0.0/8 -j ACCEPT\n' >>"$STUB_STATE_DIR/iptables.state"
 printf 'br0 192.168.20.0/24\n' >"$CONFIG/routed-networks.conf"
 run_apply apply
@@ -304,8 +352,8 @@ test_start 'stale connected route alone is removed'
 assert_eq "$(cat "$STUB_STATE_DIR/routes.state")" "300|default|ip6tnl1
 300|192.168.20.0/24|br0"
 test_start 'stale policy rule is removed while unrelated user rule remains'
-assert_eq "$(cat "$STUB_STATE_DIR/rules.state")" "10000|br0|300
-20000|user0|main"
+assert_eq "$(cat "$STUB_STATE_DIR/rules.state")" "10000|192.168.20.0/24|br0|300
+20000|10.0.0.0/8|user0|main"
 test_start 'stale SNAT is removed while unrelated firewall rule remains'
 assert_contains "$(cat "$STUB_STATE_DIR/iptables.state")" 'nat|UBIOS_POSTROUTING_USER_HOOK|-s 10.0.0.0/8 -j ACCEPT'
 test_start 'removed VLAN SNAT no longer exists'
@@ -354,7 +402,7 @@ assert_not_contains "$dry_output" "$LOCAL_V6"
 new_case off
 run_apply apply
 assert_run_success 'off fixture apply converges'
-printf '25000|user0|main\n' >>"$STUB_STATE_DIR/rules.state"
+printf '25000|10.0.0.0/8|user0|main\n' >>"$STUB_STATE_DIR/rules.state"
 printf 'nat|UBIOS_POSTROUTING_USER_HOOK|-s 10.0.0.0/8 -j ACCEPT\n' >>"$STUB_STATE_DIR/iptables.state"
 printf 'UBIOS_INPUT_USER_HOOK|-s 2001:db8:ffff::1/128 -d %s/128 -p 4 -j ACCEPT\n' "$LOCAL_V6" >>"$STUB_STATE_DIR/ip6tables.state"
 printf 'unifi-jpix-tunnel-repair-watch.service\n' >"$STUB_STATE_DIR/services.active"
@@ -373,7 +421,7 @@ assert_eq "$(cat "$STUB_STATE_DIR/addr4.state")" 'ip6tnl1|192.0.0.2/29'
 test_start 'off removes managed WAN endpoint'
 assert_eq "$(cat "$STUB_STATE_DIR/addr6.state")" ''
 test_start 'off preserves unrelated policy rule'
-assert_eq "$(cat "$STUB_STATE_DIR/rules.state")" '25000|user0|main'
+assert_eq "$(cat "$STUB_STATE_DIR/rules.state")" '25000|10.0.0.0/8|user0|main'
 test_start 'off preserves unrelated IPv4 firewall rule'
 assert_eq "$(cat "$STUB_STATE_DIR/iptables.state")" 'nat|UBIOS_POSTROUTING_USER_HOOK|-s 10.0.0.0/8 -j ACCEPT'
 test_start 'off preserves identical untagged IPv6 accept'
@@ -410,10 +458,10 @@ new_case compressed-ipv6-kernel-output
 run_apply apply
 assert_run_success 'compressed IPv6 kernel fixture converges initially'
 cat >"$STUB_STATE_DIR/addr6.show-output" <<'EOF'
-    inet6 2001:db8:1234:30:cb:71:2a00:0/128 scope global
+    inet6 2001:db8:1234:20:cb:71:2a00:0/128 scope global
 EOF
 cat >"$STUB_STATE_DIR/tunnel.show-output" <<'EOF'
-ip6tnl1: ipip6 remote 2001:db8:ffff::1 local 2001:db8:1234:30:cb:71:2a00:0
+ip6tnl1: ipip6 remote 2001:db8:ffff::1 local 2001:db8:1234:20:cb:71:2a00:0
 EOF
 compressed_status_before=$(physical_state)
 run_apply status
@@ -461,7 +509,7 @@ assert_eq "$(cat "$STUB_STATE_DIR/ip6tables.state")" "UBIOS_INPUT_USER_HOOK|-s 2
 
 # Validation and ownership rejections all happen before mutation.
 new_case collision-rule
-printf '10001|other0|999\n' >"$STUB_STATE_DIR/rules.state"
+printf '10001|192.168.10.0/24|other0|999\n' >"$STUB_STATE_DIR/rules.state"
 assert_rejected_unchanged 'first-apply reserved preference collision'
 
 new_case collision-table
@@ -558,12 +606,12 @@ new_case endpoint-transition
 run_apply apply
 assert_run_success 'endpoint transition fixture converges'
 printf 'UBIOS_INPUT_USER_HOOK|-s 2001:db8:ffff::1/128 -d %s/128 -p 4 -j ACCEPT\n' "$LOCAL_V6" >>"$STUB_STATE_DIR/ip6tables.state"
-printf '2001:db8:1234:31:abcd::1\n' >"$STUB_STATE_DIR/route6.source"
+printf '2001:db8:1234:21::\n' >"$STUB_STATE_DIR/endpoint6.prefix"
 run_apply apply
 assert_run_success 'endpoint transition converges atomically'
 test_start 'new endpoint replaces old managed WAN host address'
 assert_eq "$(cat "$STUB_STATE_DIR/addr6.state")" "eth9|$NEXT_LOCAL_V6/128"
-test_start 'tunnel uses the new route-selected endpoint'
+test_start 'tunnel uses the new delegated endpoint prefix'
 assert_contains "$(cat "$STUB_STATE_DIR/tunnel.state")" "TUN_LOCAL=$NEXT_LOCAL_V6"
 test_start 'new tagged outer rule replaces only old tagged identity'
 assert_eq "$(cat "$STUB_STATE_DIR/ip6tables.state")" "UBIOS_INPUT_USER_HOOK|-s 2001:db8:ffff::1/128 -d $LOCAL_V6/128 -p 4 -j ACCEPT
@@ -697,7 +745,7 @@ assert_run_success 'later ownership tolerates legal route attributes'
 new_case conflicting-reserved-rule
 run_apply apply
 assert_run_success 'reserved-rule conflict fixture converges'
-printf '10000|evil0|999\n' >>"$STUB_STATE_DIR/rules.state"
+printf '10000|192.168.20.0/24|evil0|999\n' >>"$STUB_STATE_DIR/rules.state"
 assert_rejected_unchanged 'extra conflicting rule at managed preference'
 
 new_case canonical-firewall-output
@@ -705,7 +753,7 @@ run_apply apply
 assert_run_success 'canonical firewall fixture converges'
 : >"$STUB_STATE_DIR/firewall.canonicalize"
 cat >"$STUB_STATE_DIR/ip6tables.s-output" <<EOF
--A UBIOS_INPUT_USER_HOOK -s 2001:db8:ffff::1/128 -d 2001:db8:1234:30:cb:71:2a00:0/128 -p ipencap -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT
+-A UBIOS_INPUT_USER_HOOK -s 2001:db8:ffff::1/128 -d 2001:db8:1234:20:cb:71:2a00:0/128 -p ipencap -m comment --comment unifi-jpix-tunnel-repair -j ACCEPT
 EOF
 run_apply apply
 assert_run_success 'later ownership accepts canonical protocol spelling'
@@ -735,12 +783,7 @@ new_case nat-chain-transition
 run_apply apply
 assert_run_success 'NAT chain transition fixture converges'
 printf 'iptables -t nat -S UBIOS_POSTROUTING_USER_HOOK\n' >"$STUB_STATE_DIR/absent.invocations"
-run_apply apply
-assert_run_success 'NAT chain transition converges'
-test_start 'NAT chain transition removes old managed SNAT rules'
-assert_not_contains "$(cat "$STUB_STATE_DIR/iptables.state")" 'nat|UBIOS_POSTROUTING_USER_HOOK|'
-test_start 'NAT chain transition installs new exact SNAT rules'
-assert_contains "$(cat "$STUB_STATE_DIR/iptables.state")" 'nat|POSTROUTING|-s 192.168.20.0/24'
+assert_rejected_unchanged 'missing UniFi NAT user hook after initial apply'
 
 new_case outer-yes-to-auto
 run_apply apply
@@ -760,7 +803,7 @@ assert_run_success 'material status drift fixture converges'
 printf 'ip6tnl1|198.51.100.77/32\n' >>"$STUB_STATE_DIR/addr4.state"
 printf 'eth9|2001:0db8:1234:0029:00cb:0071:2a00:0000/128\n' >>"$STUB_STATE_DIR/addr6.state"
 printf '300|10.77.0.0/16|evil0\n' >>"$STUB_STATE_DIR/routes.state"
-printf '10000|evil0|999\n' >>"$STUB_STATE_DIR/rules.state"
+printf '10000|192.168.20.0/24|evil0|999\n' >>"$STUB_STATE_DIR/rules.state"
 sed -n '1p' "$STUB_STATE_DIR/iptables.state" >>"$STUB_STATE_DIR/iptables.state"
 run_apply status
 assert_run_failure 'status rejects extra addresses routes rules and duplicates'
@@ -773,7 +816,7 @@ done
 new_case status-local-state-mismatch
 run_apply apply
 assert_run_success 'status local mismatch fixture converges'
-printf '2001:db8:1234:31:abcd::1\n' >"$STUB_STATE_DIR/route6.source"
+printf '2001:db8:1234:21::\n' >"$STUB_STATE_DIR/endpoint6.prefix"
 run_apply status
 assert_run_failure 'status rejects freshly derived and recorded local mismatch'
 test_start 'status reports recorded local mismatch explicitly'
@@ -966,13 +1009,8 @@ printf 'iptables -t nat -S UBIOS_POSTROUTING_USER_HOOK\n' >"$STUB_STATE_DIR/abse
 dry_transition_physical=$(physical_state)
 dry_transition_runtime=$(runtime_state)
 run_apply --dry-run apply
-assert_run_success 'dry NAT-chain transition produces a plan'
-dry_transition_output=$(cat "$RUN_OUTPUT")
-test_start 'dry NAT-chain transition plans old-chain exact deletion'
-assert_contains "$dry_transition_output" '[dry-run] iptables -t nat -D UBIOS_POSTROUTING_USER_HOOK -s 192.168.20.0/24 -o ip6tnl1 -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source [FIXED_V4]'
-test_start 'dry NAT-chain transition plans new-chain exact addition'
-assert_contains "$dry_transition_output" '[dry-run] iptables -t nat -A POSTROUTING -s 192.168.20.0/24 -o ip6tnl1 -m comment --comment unifi-jpix-tunnel-repair -j SNAT --to-source [FIXED_V4]'
-test_start 'dry NAT-chain transition writes no state'
+assert_run_failure 'dry-run rejects a missing UniFi NAT user hook instead of planning global fallback'
+test_start 'rejected dry-run writes no state'
 assert_eq "$(physical_state)$(runtime_state)" "$dry_transition_physical$dry_transition_runtime"
 
 # Fix round 2 D: status accounts for every tagged identity and current chain.
@@ -1008,7 +1046,7 @@ status_chain_before=$(physical_state)
 run_apply status
 assert_run_failure 'status rejects primary-to-fallback NAT chain drift'
 test_start 'status reports current NAT chain drift explicitly'
-assert_contains "$(cat "$RUN_OUTPUT")" 'ERROR nat_chain=POSTROUTING expected=UBIOS_POSTROUTING_USER_HOOK'
+assert_contains "$(cat "$RUN_OUTPUT")" 'ERROR nat_chain=inspection_failed expected=UBIOS_POSTROUTING_USER_HOOK'
 test_start 'NAT chain drift status is read-only'
 assert_eq "$(physical_state)" "$status_chain_before"
 
@@ -1016,7 +1054,7 @@ assert_eq "$(physical_state)" "$status_chain_before"
 new_case dry-endpoint-transition-redaction
 run_apply apply
 assert_run_success 'dry endpoint redaction fixture converges'
-printf '2001:db8:1234:31:abcd::1\n' >"$STUB_STATE_DIR/route6.source"
+printf '2001:db8:1234:21::\n' >"$STUB_STATE_DIR/endpoint6.prefix"
 dry_endpoint_physical=$(physical_state)
 dry_endpoint_runtime=$(runtime_state)
 run_apply --dry-run apply
@@ -1104,8 +1142,8 @@ assert_rejected_unchanged 'unsafe persisted route token'
 new_case duplicate-policy-off
 run_apply apply
 assert_run_success 'duplicate policy off fixture converges'
-PATH=$APPLY_PATH ip -4 rule add pref 10000 iif br0 lookup 300
-PATH=$APPLY_PATH ip -4 rule add pref 10001 iif br10 lookup 300
+PATH=$APPLY_PATH ip -4 rule add pref 10000 from 192.168.20.0/24 iif br0 lookup 300
+PATH=$APPLY_PATH ip -4 rule add pref 10001 from 192.168.10.0/24 iif br10 lookup 300
 run_apply off
 assert_run_success 'off removes all exact managed policy-rule duplicates'
 test_start 'off leaves no managed policy rule duplicate'
@@ -1114,8 +1152,8 @@ assert_eq "$(cat "$STUB_STATE_DIR/rules.state")" ''
 new_case duplicate-policy-rollback
 run_apply apply
 assert_run_success 'duplicate policy rollback fixture converges'
-PATH=$APPLY_PATH ip -4 rule add pref 10000 iif br0 lookup 300
-PATH=$APPLY_PATH ip -4 rule add pref 10001 iif br10 lookup 300
+PATH=$APPLY_PATH ip -4 rule add pref 10000 from 192.168.20.0/24 iif br0 lookup 300
+PATH=$APPLY_PATH ip -4 rule add pref 10001 from 192.168.10.0/24 iif br10 lookup 300
 duplicate_policy_physical=$(physical_state)
 duplicate_policy_runtime=$(runtime_state)
 V6PLUS_TEST_FAIL_OFF_REMOVE=managed
@@ -1129,7 +1167,7 @@ assert_eq "$(physical_state)$(runtime_state)" "$duplicate_policy_physical$duplic
 new_case off-unknown-reserved-rule
 run_apply apply
 assert_run_success 'off unknown reserved-rule fixture converges'
-printf '10000|evil0|999\n' >>"$STUB_STATE_DIR/rules.state"
+printf '10000|192.168.20.0/24|evil0|999\n' >>"$STUB_STATE_DIR/rules.state"
 off_unknown_rule_physical=$(physical_state)
 off_unknown_rule_runtime=$(runtime_state)
 off_unknown_rule_log_lines=$(wc -l <"$STUB_LOG" | tr -d ' ')

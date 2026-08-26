@@ -27,6 +27,7 @@ write_config() {
   cat >"$CONFIG/gateway.conf" <<'EOF'
 WAN_IF=eth9
 TUN_IF=ip6tnl1
+ENDPOINT_IF=br0
 STATIC_V4=203.0.113.42
 BR_V6=2001:db8:ffff::1
 IID=00cb:0071:2a00:0000
@@ -45,6 +46,7 @@ write_non_documentation_config() {
   cat >"$CONFIG/gateway.conf" <<'EOF'
 WAN_IF=eth9
 TUN_IF=ip6tnl1
+ENDPOINT_IF=br0
 STATIC_V4=8.8.8.8
 BR_V6=2400:abcd:ffff::1
 IID=00cb:0071:2a00:0000

@@ -31,12 +31,14 @@ for unit in "$TMP/root/etc/systemd/system"/unifi-jpix-tunnel-repair-*; do
   assert_eq "$(stat -c %a "$unit")" 644
 done
 
-test_start 'installer does not create live configuration from examples'
-if find "$TMP/root/data/unifi-jpix-tunnel-repair/config" -type f ! -name '*.example' -print | grep . >/dev/null; then
+test_start 'installer creates no live configuration beyond the static platform matrix'
+if find "$TMP/root/data/unifi-jpix-tunnel-repair/config" -type f ! -name '*.example' ! -name 'verified-platforms.conf' -print | grep . >/dev/null; then
   fail 'live config was created'
 else
   pass
 fi
+test_start 'installer includes the root-only verified platform matrix'
+assert_eq "$(stat -c %a "$TMP/root/data/unifi-jpix-tunnel-repair/config/verified-platforms.conf")" 600
 
 test_start 'installer does not enable or start services'
 if grep -E 'enable|start' "$TMP/stdout" "$TMP/stderr" >/dev/null; then

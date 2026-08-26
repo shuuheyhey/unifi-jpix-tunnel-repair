@@ -24,7 +24,7 @@ if [ "${V6PLUS_LIB+x}" = x ]; then LIB=$V6PLUS_LIB; else LIB=$ROOT/scripts/unifi
 # Trusted program code only. Configuration and state are parsed below strictly as data.
 . "$LIB"
 
-unset TRIGGER_SOURCE_V6 TRIGGER_SOURCE_FULL TRIGGER_DESIRED_V6 TRIGGER_OLD_V6 TRIGGER_POST_V6 TRIGGER_STATE_LOCAL
+unset TRIGGER_SOURCE_V6 TRIGGER_SOURCE_FULL TRIGGER_ENDPOINT_PREFIX TRIGGER_DESIRED_V6 TRIGGER_OLD_V6 TRIGGER_POST_V6 TRIGGER_STATE_LOCAL
 unset TRIGGER_ROUTE_OUTPUT TRIGGER_ADDR_OUTPUT
 unset trigger_line trigger_key trigger_value trigger_first trigger_second trigger_extra trigger_record
 unset trigger_state_local trigger_state_expanded trigger_preferred_full trigger_preferred_tokens
@@ -35,6 +35,7 @@ unset PROC_PARSED_PID PROC_PARSED_STARTTIME PROC_STATUS_SIGNAL_PID
 unset process_identity_output process_identity_proc_pid process_identity_signal_pid process_identity_start
 unset READY_SIGNAL_PID READY_PROC_PID READY_STARTTIME
 v6_clear_ipv6_helper_scratch
+v6_clear_endpoint_helper_scratch
 
 V6PLUS_STATE_DIR=${V6PLUS_STATE_DIR:-/data/unifi-jpix-tunnel-repair/state}
 V6PLUS_MONITOR_CMD=${V6PLUS_MONITOR_CMD:-ip}
@@ -500,7 +501,7 @@ EOF
 }
 
 validated_desired_endpoint() {
-  unset TRIGGER_SOURCE_V6 TRIGGER_SOURCE_FULL TRIGGER_DESIRED_V6
+  unset TRIGGER_SOURCE_V6 TRIGGER_SOURCE_FULL TRIGGER_ENDPOINT_PREFIX TRIGGER_DESIRED_V6
   unset TRIGGER_ROUTE_OUTPUT TRIGGER_ADDR_OUTPUT
   TRIGGER_ADDR_OUTPUT=$("$V6_IP_CMD" -6 addr show dev "$V6_WAN_IF" scope global 2>/dev/null) || return 1
   TRIGGER_ROUTE_OUTPUT=$("$V6_IP_CMD" -6 route get "$V6_BR_V6" 2>/dev/null) || return 1
@@ -518,8 +519,9 @@ EOF
 $TRIGGER_ADDR_OUTPUT
 EOF
   [ "$?" -eq 0 ] || return 1
-  TRIGGER_DESIRED_V6=$(v6_compose_local_v6 "$TRIGGER_SOURCE_FULL" "$V6_IID") || return 1
-  unset TRIGGER_SOURCE_V6 TRIGGER_SOURCE_FULL TRIGGER_ROUTE_OUTPUT TRIGGER_ADDR_OUTPUT
+  TRIGGER_ENDPOINT_PREFIX=$(v6_endpoint_prefix64 "$V6_ENDPOINT_IF") || return 1
+  TRIGGER_DESIRED_V6=$(v6_compose_local_v6 "$TRIGGER_ENDPOINT_PREFIX" "$V6_IID") || return 1
+  unset TRIGGER_SOURCE_V6 TRIGGER_SOURCE_FULL TRIGGER_ENDPOINT_PREFIX TRIGGER_ROUTE_OUTPUT TRIGGER_ADDR_OUTPUT
 }
 
 record_has_interface() {

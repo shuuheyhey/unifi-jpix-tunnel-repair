@@ -1,6 +1,7 @@
 # UniFi-managed tunnel repair settings
 WAN_IF=replace-with-route-device
 TUN_IF=replace-with-tunnel
+ENDPOINT_IF=replace-with-delegated-prefix-interface
 STATIC_V4=203.0.113.42
 BR_V6=2001:db8:ffff::1
 IID=00cb:0071:2a00:0000

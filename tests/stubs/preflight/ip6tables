@@ -1,7 +1,13 @@
 #!/bin/sh
 printf 'ip6tables %s\n' "$*" >>"$STUB_LOG"
-case $* in
-  '-S UBIOS_INPUT_USER_HOOK')
+case ${PREFLIGHT_STUB_MODE:-ready}:$* in
+  nft-backend:'--version') printf 'ip6tables v1.8.7 (nf_tables)\n' ;;
+  *:'--version') printf 'ip6tables v1.8.7 (legacy)\n' ;;
+  missing-v6-parent:'-S UBIOS_INPUT_JUMP') exit 1 ;;
+  detached-v6-parent:'-S UBIOS_INPUT_JUMP') printf '%s\n' '-A UBIOS_INPUT_JUMP -j SOME_OTHER_CHAIN' ;;
+  duplicate-v6-parent:'-S UBIOS_INPUT_JUMP') printf '%s\n%s\n' '-A UBIOS_INPUT_JUMP -j UBIOS_INPUT_USER_HOOK' '-A UBIOS_INPUT_JUMP -j UBIOS_INPUT_USER_HOOK' ;;
+  *:'-S UBIOS_INPUT_JUMP') printf '%s\n' '-A UBIOS_INPUT_JUMP -j UBIOS_INPUT_USER_HOOK' ;;
+  *:'-S UBIOS_INPUT_USER_HOOK')
     printf '%s\n' '-N UBIOS_INPUT_USER_HOOK'
     ;;
   *) exit 1 ;;

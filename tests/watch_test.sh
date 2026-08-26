@@ -10,7 +10,7 @@ STUB=$ROOT/tests/stubs/runtime
 TMP_BASE=$(CDPATH= cd -- "${TMPDIR:-/tmp}" && pwd -P)
 TMP=${TMP_BASE%/}/unifi-jpix-tunnel-repair-watch-test.$$
 OLD_ENDPOINT=2001:0db8:1234:0030:00cb:0071:2a00:0000
-NEW_ENDPOINT=2001:0db8:1234:0031:00cb:0071:2a00:0000
+NEW_ENDPOINT=2001:0db8:1234:0020:00cb:0071:2a00:0000
 SECRET_SENTINEL='watch-secret-user:p&a ss%word'
 trap 'rm -rf "$TMP"' EXIT HUP INT TERM
 mkdir -p "$TMP"
@@ -43,6 +43,7 @@ new_case() {
   cat >"$CASE/config/gateway.conf" <<'EOF'
 WAN_IF=eth9
 TUN_IF=ip6tnl1
+ENDPOINT_IF=br0
 STATIC_V4=203.0.113.42
 BR_V6=2001:db8:ffff::1
 IID=00cb:0071:2a00:0000

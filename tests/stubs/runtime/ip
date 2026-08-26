@@ -5,8 +5,25 @@ set -u
 [ -z "${RUNTIME_CHILD_ENV_LOG:-}" ] || env >>"$RUNTIME_CHILD_ENV_LOG"
 
 case "$*" in
+  '-d link show type bridge')
+    printf '10: br0: <BROADCAST,MULTICAST,UP> mtu 1500 state UP\n'
+    printf '11: br10: <BROADCAST,MULTICAST,UP> mtu 1500 state UP\n'
+    exit 0
+    ;;
   'link show dev br0'|'link show dev br10'|'link show dev eth9'|'link show dev ip6tnl1')
     printf '1: %s: <UP,LOWER_UP> mtu 1500 state UP\n' "$4"
+    exit 0
+    ;;
+  '-4 route show dev br0 scope link')
+    printf '192.168.20.0/24 proto kernel scope link src 192.168.20.1\n'
+    exit 0
+    ;;
+  '-4 route show dev br10 scope link')
+    printf '192.168.10.0/24 proto kernel scope link src 192.168.10.1\n'
+    exit 0
+    ;;
+  '-6 route show table all proto kernel')
+    printf '2001:db8:1234:20::/64 dev br0 proto kernel metric 256\n'
     exit 0
     ;;
   '-6 route get '*)
