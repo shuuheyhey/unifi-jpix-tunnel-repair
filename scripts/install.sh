@@ -46,7 +46,13 @@ secure_existing_dir() {
   esac
   secure_group=${secure_mode#?}; secure_group=${secure_group%?}
   secure_other=${secure_mode#??}
-  case $secure_group$secure_other in *[2367]*) return 1 ;; esac
+  case $secure_other in [2367]) return 1 ;; esac
+  case $secure_group in
+    [2367])
+      [ "${V6PLUS_ALLOW_NONROOT:-0}" != 1 ] || return 1
+      [ "$(stat -c %g "$secure_dir")" = 0 ] || return 1
+      ;;
+  esac
   if [ "${V6PLUS_ALLOW_NONROOT:-0}" = 1 ]; then
     [ "$(stat -c %u "$secure_dir")" = "$(id -u)" ]
   else

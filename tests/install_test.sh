@@ -8,7 +8,8 @@ ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 INSTALLER=$ROOT/scripts/install.sh
 TMP_BASE=$(CDPATH= cd -- "${TMPDIR:-/tmp}" && pwd -P)
 TMP=${TMP_BASE%/}/unifi-jpix-tunnel-repair-install-test.$$
-trap 'chmod -R u+rwX "$TMP" 2>/dev/null || :; rm -rf "$TMP"' EXIT HUP INT TERM
+ROOT_ONLY_TMP=
+trap 'chmod -R u+rwX "$TMP" 2>/dev/null || :; rm -rf "$TMP"; [ -z "$ROOT_ONLY_TMP" ] || rm -rf "$ROOT_ONLY_TMP"' EXIT HUP INT TERM
 mkdir -p "$TMP/root/data" "$TMP/root/etc/systemd/system"
 chmod 755 "$TMP/root" "$TMP/root/data" "$TMP/root/etc" "$TMP/root/etc/systemd" "$TMP/root/etc/systemd/system"
 
@@ -44,6 +45,24 @@ test_start 'installer does not enable or start services'
 if grep -E 'enable|start' "$TMP/stdout" "$TMP/stderr" >/dev/null; then
   fail 'installer activated runtime services'
 else
+  pass
+fi
+
+if [ "$(id -u)" -eq 0 ]; then
+  ROOT_ONLY_TMP=/root/unifi-jpix-tunnel-repair-install-test.$$
+  mkdir -p "$ROOT_ONLY_TMP/data" "$ROOT_ONLY_TMP/etc/systemd/system"
+  chmod 755 "$ROOT_ONLY_TMP" "$ROOT_ONLY_TMP/data" "$ROOT_ONLY_TMP/etc/systemd/system"
+  chmod 775 "$ROOT_ONLY_TMP/etc" "$ROOT_ONLY_TMP/etc/systemd"
+  set +e
+  "$INSTALLER" --destdir "$ROOT_ONLY_TMP" >"$TMP/root-group-stdout" 2>"$TMP/root-group-stderr"
+  root_group_status=$?
+  set -e
+  test_start 'root-owned root-group-writable system parents are accepted'
+  assert_eq "$root_group_status" 0
+  rm -rf "$ROOT_ONLY_TMP"
+  ROOT_ONLY_TMP=
+else
+  test_start 'root-group-writable parent test is root-only'
   pass
 fi
 
