@@ -152,7 +152,7 @@ load_original_state() {
     [ "${ORIGINAL_TUN_IPV4+x}" = x ] && [ "${ORIGINAL_TUN_MTU+x}" = x ] &&
     [ "${ORIGINAL_TUN_UP+x}" = x ] || return 1
   v6_is_iface_value "$ORIGINAL_TUN_IF" && tunnel_mode_command_safe "$ORIGINAL_TUN_MODE" &&
-    v6_is_ip_value "$ORIGINAL_TUN_LOCAL" && v6_is_ipv6 "$ORIGINAL_TUN_LOCAL" &&
+    tunnel_local_is_valid "$ORIGINAL_TUN_LOCAL" &&
     v6_is_ip_value "$ORIGINAL_TUN_REMOTE" && v6_is_ipv6 "$ORIGINAL_TUN_REMOTE" &&
     v6_is_ip_value "$ORIGINAL_TUN_IPV4" && v6_is_cidr "$ORIGINAL_TUN_IPV4" &&
     v6_is_uint "$ORIGINAL_TUN_MTU" || return 1
@@ -226,6 +226,17 @@ tunnel_mode_command_safe() {
   esac
 }
 
+ipv4_mapped_ipv6_is_valid() {
+  case $1 in
+    ::[Ff][Ff][Ff][Ff]:*) mapped_ipv4=${1#::[Ff][Ff][Ff][Ff]:}; v6_is_ipv4 "$mapped_ipv4" ;;
+    *) return 1 ;;
+  esac
+}
+
+tunnel_local_is_valid() {
+  v6_is_ipv6 "$1" || ipv4_mapped_ipv6_is_valid "$1"
+}
+
 normalize_tunnel_mode() {
   case $1 in
     any|any/ipv6) printf '%s\n' any ;;
@@ -266,7 +277,7 @@ current_tunnel() {
   CURRENT_TUN_LOCAL=$(read_token_after local "$@") || return 1
   CURRENT_TUN_REMOTE=$(read_token_after remote "$@") || return 1
   tunnel_mode_command_safe "$CURRENT_TUN_MODE" &&
-    v6_is_ip_value "$CURRENT_TUN_LOCAL" && v6_is_ip_value "$CURRENT_TUN_REMOTE"
+    tunnel_local_is_valid "$CURRENT_TUN_LOCAL" && v6_is_ipv6 "$CURRENT_TUN_REMOTE"
 }
 
 ipv6_values_equal() (
@@ -278,7 +289,16 @@ ipv6_values_equal() (
 
 tunnel_endpoints_equal() {
   [ "$#" -eq 4 ] || return 2
-  ipv6_values_equal "$1" "$2" || return $?
+  tunnel_local_is_valid "$1" && tunnel_local_is_valid "$2" || return 2
+  if v6_is_ipv6 "$1" && v6_is_ipv6 "$2"; then
+    ipv6_values_equal "$1" "$2" || return $?
+  elif ipv4_mapped_ipv6_is_valid "$1" && ipv4_mapped_ipv6_is_valid "$2"; then
+    tunnel_left=$(printf '%s\n' "$1" | tr '[:upper:]' '[:lower:]') || return 2
+    tunnel_right=$(printf '%s\n' "$2" | tr '[:upper:]' '[:lower:]') || return 2
+    [ "$tunnel_left" = "$tunnel_right" ] || return 1
+  else
+    return 1
+  fi
   ipv6_values_equal "$3" "$4"
 }
 
@@ -555,7 +575,8 @@ EOF
     ADDR4_ABSENT) inverse_addr4_absent "$inverse_a" "$inverse_b" ;;
     ADDR4_PRESENT) v6_is_iface_value "$inverse_a" && v6_is_ip_value "$inverse_b" && v6_run "$V6_IP_CMD" -4 addr replace "$inverse_b" dev "$inverse_a" ;;
     TUNNEL_CHANGE)
-      v6_is_iface_value "$inverse_a" && tunnel_mode_command_safe "$inverse_b" && v6_is_ip_value "$inverse_c" && v6_is_ip_value "$inverse_d" &&
+      v6_is_iface_value "$inverse_a" && tunnel_mode_command_safe "$inverse_b" &&
+        tunnel_local_is_valid "$inverse_c" && v6_is_ipv6 "$inverse_d" &&
         v6_run "$V6_IP_CMD" -6 tunnel change "$inverse_a" mode "$inverse_b" local "$inverse_c" remote "$inverse_d"
       ;;
     LINK_SET)

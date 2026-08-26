@@ -310,6 +310,37 @@ assert_run_success 'off restores a native any-over-IPv6 tunnel'
 test_start 'off restores the command-safe native mode'
 assert_contains "$(cat "$STUB_STATE_DIR/tunnel.state")" 'TUN_MODE=any'
 
+new_case native-mapped-local
+sed -e 's/^TUN_MODE=.*/TUN_MODE=any\/ipv6/' \
+  -e 's/^TUN_LOCAL=.*/TUN_LOCAL=::ffff:192.0.2.9/' \
+  "$STUB_STATE_DIR/tunnel.state" >"$STUB_STATE_DIR/tunnel.tmp"
+mv "$STUB_STATE_DIR/tunnel.tmp" "$STUB_STATE_DIR/tunnel.state"
+run_apply apply
+assert_run_success 'native tunnel with an IPv4-mapped local token converges'
+test_start 'IPv4-mapped original local token is preserved exactly'
+assert_contains "$(cat "$STATE/original-tunnel.env")" 'TUN_LOCAL=::ffff:192.0.2.9'
+run_apply off
+assert_run_success 'off restores a native IPv4-mapped local token'
+test_start 'restored native tunnel keeps the IPv4-mapped local token'
+assert_contains "$(cat "$STUB_STATE_DIR/tunnel.state")" 'TUN_LOCAL=::ffff:192.0.2.9'
+
+new_case native-mapped-local-rollback
+sed -e 's/^TUN_MODE=.*/TUN_MODE=any\/ipv6/' \
+  -e 's/^TUN_LOCAL=.*/TUN_LOCAL=::ffff:192.0.2.9/' \
+  "$STUB_STATE_DIR/tunnel.state" >"$STUB_STATE_DIR/tunnel.tmp"
+mv "$STUB_STATE_DIR/tunnel.tmp" "$STUB_STATE_DIR/tunnel.state"
+mapped_before=$(physical_state | sed 's/TUN_MODE=any\/ipv6/TUN_MODE=any/')
+STUB_FAIL_RULE_PREF=10001
+export STUB_FAIL_RULE_PREF
+run_apply apply
+assert_run_failure 'later apply failure with an IPv4-mapped original local is surfaced'
+unset STUB_FAIL_RULE_PREF
+test_start 'transaction rollback restores the IPv4-mapped original tunnel in command-safe mode'
+assert_eq "$(physical_state)" "$mapped_before"
+test_start 'complete mapped-local rollback removes invocation-created state'
+[ ! -e "$STATE/original-tunnel.env" ] && [ ! -e "$STATE/managed-networks" ] &&
+  [ ! -e "$STATE/last-apply.env" ] && pass || fail 'state survived complete rollback'
+
 new_case post-apply-ip-over-ipv6
 run_apply apply
 assert_run_success 'post-apply display fixture first converges'
