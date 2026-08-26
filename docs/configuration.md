@@ -57,6 +57,20 @@ bridge-interface private-ipv4-cidr
 | `ALLOW_INSECURE_UPDATE_HTTP` | HTTPへの明示opt-in。既定は`no` |
 | `INSECURE_UPDATE_HTTP_HOST` | HTTP時だけ、URL authorityと完全一致させるhost |
 
+公開されているαWebの設定ガイドとFAQ、CiscoのJPIX設定例では、更新・再設定endpointとして`http://fcs.enabler.ne.jp/update`が案内されています。契約ISPの最新通知書でも同じ値が指定されている場合は、次の形で設定します。
+
+```text
+UPDATE_URL=http://fcs.enabler.ne.jp/update
+UPDATE_USERNAME=replace-with-reconfiguration-user-id
+UPDATE_PASSWORD=replace-with-reconfiguration-password
+ALLOW_INSECURE_UPDATE_HTTP=yes
+INSECURE_UPDATE_HTTP_HOST=fcs.enabler.ne.jp
+```
+
+`UPDATE_USERNAME`には固定IP登録完了通知の「再設定ユーザID」、`UPDATE_PASSWORD`には「再設定パスワード」を使用します。UniFi API key、UniFi login、SSH password、device SSH password、ISP会員ページのpasswordを入力しません。credentialを`UPDATE_URL`のqueryへ手作業で追加する必要もありません。projectが`user`と`pass`をURL encodeしてGET parameterとして送信します。
+
+URLはpathを含む契約値です。`http://fcs.enabler.ne.jp/`へ短縮せず、`/update`まで正確に指定します。ただし、契約ISPの通知書が別のhost、path、schemeを明示している場合は推測せず、その値とISP supportを優先してください。詳しいrequest flow、手動再設定画面との違い、資料間の表記差は[サービスと方式の技術解説](service-and-protocols.md#471-fcsenablernejpとは何か)を参照してください。
+
 HTTPSでは次を維持します。
 
 ```text
@@ -64,7 +78,7 @@ ALLOW_INSECURE_UPDATE_HTTP=no
 INSECURE_UPDATE_HTTP_HOST=
 ```
 
-HTTPしか提供されない場合、認証情報を通信経路上で暗号化できません。リスクを受け入れた場合だけ`yes`を指定し、URL authorityとhost設定を完全一致させます。明示portを含むauthorityは許可されません。URL内userinfo、control character、未知key、重複keyは拒否されます。
+HTTPしか提供されない場合、認証情報を通信経路上で暗号化できません。`fcs.enabler.ne.jp`の公開例もHTTPであり、この危険は変わりません。リスクを受け入れた場合だけ`yes`を指定し、URL authorityとhost設定を完全一致させます。providerが明示していないHTTPS URLへ推測で変更しません。明示portを含むauthorityは許可されません。URL内userinfo、control character、未知key、重複keyは拒否されます。
 
 ## Configの作成
 

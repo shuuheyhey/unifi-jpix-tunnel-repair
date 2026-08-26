@@ -149,12 +149,75 @@ IPv4 packetへIPv6 outer headerが加わるため、物理interfaceと同じMTU�
 
 IPv6 prefixが変わると、契約IIDが同じでもlocal endpoint全体は変わります。JPIX掲載のメーカー例では、起動時にprefixを得た場合とprefix変更時に、更新URL、username、passwordを使ってCPE側IPv6 addressをアドレス解決サーバーへ通知し、トンネル通信の再開を早めます。
 
+#### 4.7.1 `fcs.enabler.ne.jp`とは何か
+
+JPIX「v6プラス」固定IPサービスの公開設定例では、`fcs.enabler.ne.jp`が現在のCPE側IPv6 endpointを登録・再登録するためのserverとして使われています。資料や機器によって名称は異なりますが、次は同じcontrol-plane機能を指します。
+
+| 資料・設定画面の名称 | 意味 |
+| --- | --- |
+| アドレス解決サーバー | 固定IP用BRが現在のCPE側IPv6 endpointを解決するための登録先 |
+| 開通サーバー | 初回開通またはendpoint登録を行うserver |
+| アップデートサーバー | prefix変更後などに現在のendpointを更新するserver |
+| 再設定URL | endpoint登録をやり直すためにrouterまたは利用者が指定するURL |
+
+これはDNS dynamic update、DDNSのhostname登録、HB46PP provisioning、通常v6プラスのMAP rule配信とは別の処理です。固定IPv4、BR、IIDなどの契約parameterそのものを取得するserverでもありません。
+
+公開されているCiscoのJPIX設定例は、`fcs.enabler.ne.jp`を開通サーバーと呼び、WAN側IPv6をsourceにしたHTTP GETを継続実行しています。αWebのIX2106設定ガイドは、固定IP登録完了通知とrouter設定欄を次のように対応付けています。
+
+| router/projectの項目 | 契約書類上の値 |
+| --- | --- |
+| `UPDATE_URL` | URLまたは再設定URL |
+| `UPDATE_USERNAME` | 再設定ユーザID |
+| `UPDATE_PASSWORD` | 再設定パスワード |
+
+UniFiのAPI key、UniFi device SSH credential、ISP会員ページのcredentialを流用する項目ではありません。契約ISPから渡された固定IP登録完了通知に別の名称または値が記載されている場合は、その書類とISP supportを優先します。
+
+#### 4.7.2 自動通知URLと手動再設定画面
+
+αWebの公式FAQ、同社のIX2106設定ガイド、Ciscoの設定例は、自動通知・router設定用のURLを次の完全なpathで案内しています。
+
+```text
+http://fcs.enabler.ne.jp/update
+```
+
+`/update`を省略した`http://fcs.enabler.ne.jp/`は同じものとして扱いません。公開されているRTX830の運用記録では、host直下を設定した結果、更新用の短い応答ではなくHTML pageが返った事例が報告されています。一方、別のRTX1300構築記録にはhost直下を入力する例があり、第三者記事同士でも表記が一致していません。このprojectでは、ISP公式資料とvendor設定例が一致している`/update`付きURLを基準にし、最終的には各契約の最新通知書を正とします。
+
+ブラウザーによる手動復旧では、契約回線上のIPv6接続からhost直下を開き、画面に再設定ユーザIDと再設定パスワードを入力する手順が案内されることがあります。これは人が使うHTML画面です。routerが自動通知する`/update` endpointとは入口が異なるため、次の2つを混同しません。
+
+```text
+手動操作: browserでhost直下の再設定画面を開く
+自動通知: routerが/updateへ認証parameter付きGETを送る
+```
+
+手動再設定は、ひかり電話契約の変更、移転、回線変更などでIPv6 addressが変わり、自動復旧しない場合の手段です。αWebの案内では、契約回線以外からは実行できず、IPv6接続が必要とされています。自動通知が正常な構成では、通常運用のたびにbrowserで手動操作するものではありません。
+
+#### 4.7.3 requestで何が登録されるか
+
+公開設定例のrequestは、URL queryの`user`と`pass`で更新用credentialを送り、requestのsource IPv6 addressによって現在のCPE側endpointをserverへ知らせる構成です。固定IPv4やBRをqueryへ追加する方式ではありません。
+
+```text
+現在のIPv6 /64 prefix + 契約IID
+  -> CPE側local IPv6 endpointを構成
+  -> その/128がWANに存在することを確認
+  -> local endpointをsourceにしてfcsの/updateへGET
+  -> serverがcredentialとsource IPv6を基にendpoint登録を更新
+  -> 固定IP用BRから新しいlocal endpointへの戻り経路が成立
+```
+
+このprojectはcredentialをURL文字列やprocess argvへ直接埋め込まず、curl設定を標準入力から渡し、`user`と`pass`をURL encodeします。さらに、合成したlocal endpointの`/128`がWANに実在することを検査し、そのaddressへsource bindしてから通知します。通知に成功しても、IPIP tunnel、route、SNAT、outer Protocol 4 firewallが誤っていれば固定IPv4通信は成立しません。
+
+#### 4.7.4 HTTPと通知頻度の注意
+
+公開されているαWeb、Cisco、Yamaha系の設定例はHTTP URLを示しています。HTTPでは再設定ユーザIDと再設定パスワードがtransport上で暗号化されません。このprojectは意図しない平文送信を防ぐため、HTTP利用時に`ALLOW_INSECURE_UPDATE_HTTP=yes`と完全一致する`INSECURE_UPDATE_HTTP_HOST`を要求します。providerが明示していないHTTPS URLへ推測で置き換えてはいけません。
+
+通知の契機や頻度は機器実装によって異なります。公開例には起動時、prefix変更時、schedulerによる継続実行が見られますが、第三者実装の周期をJPIX共通の保証値とは扱いません。このprojectではendpoint変更時の強制通知に加え、`UPDATE_INTERVAL_SECONDS`を最小間隔とする定期的な再通知を安全策として実装しています。契約ISPから頻度や再試行方法が指定されている場合は、その条件を優先します。
+
 この通知はHB46PPではありません。
 
 - JPIX固定IPの通知は、既に設定済みの固定IPv4、BR、IIDを前提に、現在のIPv6 endpointを事業者側へ知らせます。
 - HB46PPは、CPEが接続方式そのものとBR/AFTR、local endpoint、固定IPv4などを取得します。
 
-このprojectの`update`は、合成したlocal endpointがWANに存在することを確認し、そのaddressを通信sourceとして更新URLへGETを送ります。transport error時は10秒間隔で最大3回試行し、HTTP 200かつ明示的な失敗bodyでない場合だけ成功stateを保存します。HTTPSを既定とし、HTTPはhostを固定した明示opt-inが必要です。
+このprojectの`update`は、合成したlocal endpointがWANに存在することを確認し、そのaddressを通信sourceとして更新URLへGETを送ります。transport error時は10秒間隔で最大3回試行し、HTTP 200かつ明示的な失敗bodyでない場合だけ成功stateを保存します。設定例は誤送信を防ぐためsynthetic HTTPS URLを既定とし、実際のHTTP endpointはhostを固定した明示opt-inが必要です。
 
 `update.timer`は1分ごとにdue判定を起動しますが、実際の再通知間隔は`UPDATE_INTERVAL_SECONDS`で制御します。これはprefix変化を待つevent-driven通知を補うproject上の設計であり、HB46PPのTTL処理ではありません。
 
@@ -330,7 +393,9 @@ IPv4が契約値と異なる場合は、別WAN、PPPoE、VPN/proxy、対象外LA
 - 結果のcopyやscreenshotはprivateなsupport窓口だけへ送り、公開Issue、chat、SNSでは完全address、port、時刻を削除します。
 - repositoryへ残す場合は、今回のように判定code、service名、各試験のOK/NG/対象外だけを記録します。
 
-## 10. 一次資料
+## 10. 参照資料
+
+### 10.1 サービス・仕様・メーカー資料
 
 - [JPIX「v6プラス」対応製品開発ガイド 第1.3版](https://www.jpix.ad.jp/files/developer_guide_v6plus_v1.3.pdf)
 - [JPIX「v6プラス」固定IPサービス対応製品開発ガイド 第1.2版](https://www.jpix.ad.jp/files/developer_guide_v6plus-static_v1.2.pdf)
@@ -339,7 +404,16 @@ IPv4が契約値と異なる場合は、別WAN、PPPoE、VPN/proxy、対象外LA
 - [Yamaha v6プラス対応機能](https://www.rtpro.yamaha.co.jp/RT/docs/v6plus/)
 - [Yamaha IPv6マイグレーション技術の国内標準プロビジョニング方式対応機能](https://www.rtpro.yamaha.co.jp/RT/docs/hb46pp/)
 - [JAIPA IPv6マイグレーション技術の国内標準プロビジョニング方式 第1.2版](https://github.com/v6pc/v6mig-prov/blob/master/spec.md)
+- [Cisco SD-WAN IPoE JPIX編](https://community.cisco.com/t5/tkb-%E3%83%8D%E3%83%83%E3%83%88%E3%83%AF%E3%83%BC%E3%82%AD%E3%83%B3%E3%82%B0-%E3%83%89%E3%82%AD%E3%83%A5%E3%83%A1%E3%83%B3%E3%83%88/cisco-sd-wan-ipoe-jpix%E7%B7%A8/ta-p/4597068)
+- [αWeb v6プラス（固定IP）IX2106設定ガイド](https://www.alpha-web.ne.jp/help/v6plus/Web_v6Plus-IP1-IX2106.html)
+- [αWeb FAQ「再設定URLにはなにを入れれば良いですか？」](https://www.alpha-web.ne.jp/faq/v6plus/020431.html)
 - [JPNE/JPIX IPv4/IPv6接続判定ページ（旧URL）](http://wa.kiriwake.jpne.co.jp/)
 - [IPv4/IPv6接続判定ページ（HTTPS）](https://kiriwake.jpne.co.jp/)
 
-資料のサービス説明とメーカー設定例は、UDM Proまたはこのprojectへの公式対応を意味しません。公開資料は改訂されるため、導入時には契約ISPから渡された最新parameterとJPIX・メーカーの最新版を優先してください。
+### 10.2 UniFi実装・利用者による補足資料
+
+- [NET INNOVATION「UniFiでv6プラス固定IPを終端する実装記録」](https://www.net-innovation.jp/blog/unifi-v6plus-static-ip)
+- [RamuneMemo「RTX830で固定IP+v6プラスを設定する」](https://ramunememo.hatenablog.com/entry/2022/06/20/004145)
+- [Zenn「フレッツ光クロスを固定IP（IPv4）で開通させるまで（RTX1300を利用）」](https://zenn.dev/playree/articles/28e652469c1102)
+
+資料のサービス説明とメーカー設定例は、UDM Proまたはこのprojectへの公式対応を意味しません。補足資料は実装上の観測や失敗例を理解するために使用し、契約parameterやprotocol要件の根拠として公式資料より優先しません。公開資料は改訂されるため、導入時には契約ISPから渡された最新parameterとJPIX・メーカーの最新版を優先してください。
