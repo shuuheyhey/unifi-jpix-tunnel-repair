@@ -1,10 +1,36 @@
 # Validation
 
-検証は次の順序で行います。失敗または説明できない差分があれば、自動化や次の段階へ進まないでください。
+v2の確認済み範囲を先に記載し、v1の過去実績と検証手順を後半に保存します。失敗または説明できない差分があれば次の段階へ進みません。
+
+## v2の実機検証範囲
+
+2026-09-07のこの作業で取得した証跡です。リアルタイムの稼働状況ではありません。UDM Pro、UniFi OS 5系、Network 10.6系、開発版`v2.0.0-dev.13`を対象としました。完全なversion文字列や導入固有のaddressは公開資料に含めません。
+
+| 検証項目 | 状態 | 確認した範囲 |
+| --- | --- | --- |
+| 非アクティブ配置 | 完了 | discover/check/plan、専用tunnel未作成、bootstrap無効を確認 |
+| v1からv2移行 | 完了 | 最終試行は17件の変更を適用、CLIがmigrated/healthyを返した |
+| 通信とprovider通知 | 完了・限定範囲 | UDM自身のtunnel-bound IPv4とWAN-bound IPv6 ping、provider更新成功を確認。LAN端末・DNS検証の代用ではない |
+| 永続化の起動処理 | 完了・再起動未実施 | current/verifiedが同じrelease、bootstrap・timer・event monitorがactive。v1停止と確認marker、復旧timer解除を確認 |
+| netlink自動修復 | 完了・単一ケース | 専用tableの接続routeを1本削除し、30秒の観測枠内で復元。観測処理全体6.7秒、status healthy、transaction verified |
+| 移行失敗時のv1復帰 | 複数試行で確認 | health失敗やbootstrap中止後のv1再apply・疎通復帰を確認。完全な資産cleanup保証ではない |
+| 24時間shadow/長時間soak | 未実施 | ユーザー指定により24時間待機を省略 |
+| v2でのUDM再起動 | 未実施 | 次の実機gate。v1再起動実績を転用しない |
+| WAN切替・断復帰、Network restart/reprovision、prefix更新 | 未実施 | 各phaseを個別に確認する必要がある |
+| LAN端末、DNS、対象外LAN、PMTUD・UDP・VPN、firewall全消失 | 未実施 | UDM自身のpingとroute復元だけでは合格にしない |
+| UDM SE・Pro Max | 未実施 | previewを維持 |
+
+今回追加した互換修正は、xtables lock待機、save系再試行、固定IPv4 source rule、ping再試行、host rule表示正規化、systemd起動依存循環の解消です。これらは[v2ガイド](v2.md#自己修復)に反映しています。
+
+ローカル検証ではPython v2テスト31件、repository contract、event monitor、installer/release/bootstrapテスト、py_compile、diff checkが成功しました。legacy全体テストはmacOSの`stat -c`非対応で一部失敗し、全suite成功とはしていません。署名検証はローカルテストであり、実機への署名済み公開release upgradeは未検証です。
+
+次の再起動gateでは、再起動前後のBoot ID変更をprivateに確認し、current/verified、3 unit、statusとlast_health、IPv4・IPv6、provider pending、対象LAN/対象外LAN、duplicateと残存routeを確認します。今回のroute欠落試験では対象外資産の前後完全比較は行っていないため、不変性を実証済みとはしません。
+
+後続のローカル修正では`deactivate()`の接続route削除を対象LANごとのloopへ戻しました。複数LANの削除、別table/対象外LANのroute保持、削除失敗時のownership state保持を含むPython v2テスト33件が成功しています。この修正は実機未配置で、実機cleanupと再起動検証は未完了です。
 
 ## 現在の実機検証範囲
 
-2026-08-26時点のUDM Pro・UniFi OS 5系実機結果を、次の表を正本として管理します。完全address、prefix、interface名、config、state、credential、raw logは含めていません。
+以下はv1の2026-08-26時点のUDM Pro・UniFi OS 5系実機結果です。以下の「現在」「新automation」「現方式」は当時のv1を指します。v2へ移行した実機でv1が現在稼働している意味ではありません。完全address、prefix、interface名、config、state、credential、raw logは含めていません。
 
 | 検証項目 | 状態 | Share-safeな結果 |
 | --- | --- | --- |

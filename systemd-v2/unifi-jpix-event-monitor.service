@@ -1,0 +1,20 @@
+[Unit]
+Description=Monitor netlink changes for JPIX fixed-IP reconciliation
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ReadOnlyPaths=/data/unifi-jpix-tunnel-repair/current
+ExecStart=/data/unifi-jpix-tunnel-repair/current/scripts/unifi-jpix-event-monitor.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

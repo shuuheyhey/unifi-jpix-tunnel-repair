@@ -1,4 +1,6 @@
-# Configuration
+# Configuration (v1)
+
+この文書はUniFi管理トンネルを補正するv1の保守資料です。現行v2の導入・設定・移行・復旧は[v2ガイド](v2.md)、確認済み範囲は[Validation](validation.md#v2の実機検証範囲)を参照してください。以下のv1操作をv2稼働環境へそのまま適用しないでください。
 
 設定は`/data/unifi-jpix-tunnel-repair/config`へ置きます。directoryはroot所有・mode `0700`、各fileはroot所有・mode `0600`です。設定はshellとしてsourceされず、未知key、重複key、不正な値、symlink、安全でないownerやmodeがあれば処理を中止します。
 

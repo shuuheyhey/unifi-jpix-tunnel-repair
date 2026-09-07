@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodic JPIX fixed-IP desired-state reconciliation
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=5min
+AccuracySec=10s
+Persistent=true
+Unit=unifi-jpix-reconcile.service
+
+[Install]
+WantedBy=timers.target

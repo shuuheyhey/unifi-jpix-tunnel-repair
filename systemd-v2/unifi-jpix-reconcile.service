@@ -1,0 +1,17 @@
+[Unit]
+Description=Reconcile the project-owned JPIX fixed-IP tunnel
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/data/unifi-jpix-tunnel-repair/config-v2.json
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ReadOnlyPaths=/data/unifi-jpix-tunnel-repair/current /data/unifi-jpix-tunnel-repair/config-v2.json -/data/unifi-jpix-tunnel-repair/credentials-v2.json
+ExecStart=/data/unifi-jpix-tunnel-repair/current/bin/unifi-jpix reconcile --retry
+TimeoutStartSec=180

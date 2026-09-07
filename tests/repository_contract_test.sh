@@ -6,10 +6,12 @@ ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 
 for path in README.md LICENSE NOTICE.md SECURITY.md CONTRIBUTING.md .gitignore \
   docs/architecture.md docs/configuration.md docs/installation.md docs/rollback.md \
-  docs/service-and-protocols.md docs/troubleshooting.md docs/udm-pro-setup.md docs/validation.md \
+  docs/service-and-protocols.md docs/troubleshooting.md docs/udm-pro-setup.md docs/validation.md docs/v2.md \
   config/verified-platforms.conf \
   config/gateway.conf.example config/routed-networks.conf.example config/provider-update.conf.example \
-  scripts/install.sh \
+  config/config-v2.json.example config/credentials-v2.json.example \
+  bin/unifi-jpix scripts/install.sh scripts/install-v2.sh scripts/build-v2-release.sh \
+  scripts/unifi-jpix-bootstrap.sh scripts/unifi-jpix-event-monitor.sh scripts/unifi-jpix-timed-recovery.sh \
   scripts/unifi-jpix-tunnel-repair-preflight.sh \
   scripts/unifi-jpix-tunnel-repair-apply.sh \
   scripts/unifi-jpix-tunnel-repair-diag.sh \
@@ -23,6 +25,11 @@ for path in README.md LICENSE NOTICE.md SECURITY.md CONTRIBUTING.md .gitignore \
   systemd/unifi-jpix-tunnel-repair-update.service \
   systemd/unifi-jpix-tunnel-repair-update.timer \
   systemd/unifi-jpix-tunnel-repair-watch.service \
+  systemd-v2/unifi-jpix-bootstrap.service systemd-v2/unifi-jpix-reconcile.service \
+  systemd-v2/unifi-jpix-reconcile.timer systemd-v2/unifi-jpix-event-monitor.service \
+  src/unifi_jpix/__init__.py src/unifi_jpix/core.py src/unifi_jpix/cli.py src/unifi_jpix/release.py \
+  tests/event_monitor_v2_test.sh tests/install_v2_test.sh \
+  tests_v2/test_cli.py tests_v2/test_core.py tests_v2/test_release.py \
   .github/pull_request_template.md \
   .github/ISSUE_TEMPLATE/bug_report.yml .github/ISSUE_TEMPLATE/config.yml
 do
@@ -47,6 +54,23 @@ assert_contains "$(cat "$ROOT/config/provider-update.conf.example")" 'UPDATE_URL
 
 test_start 'legacy HTTP is disabled in the update example'
 assert_contains "$(cat "$ROOT/config/provider-update.conf.example")" 'ALLOW_INSECURE_UPDATE_HTTP=no'
+
+test_start 'v2 uses a project-owned tunnel'
+assert_contains "$(cat "$ROOT/docs/v2.md")" 'project-owned tunnel'
+
+test_start 'event monitor does not create a bootstrap start cycle'
+if grep -Eq '^After=.*unifi-jpix-bootstrap\.service' "$ROOT/systemd-v2/unifi-jpix-event-monitor.service"; then
+  fail 'event monitor waits for the bootstrap that synchronously starts it'
+else
+  pass
+fi
+
+test_start 'v2 config does not accept a WAN interface'
+if grep -Eq '"wan(_interface)?"[[:space:]]*:' "$ROOT/config/config-v2.json.example"; then
+  fail 'v2 config contains a fixed WAN selector'
+else
+  pass
+fi
 
 test_start 'README identifies the project as unofficial and experimental'
 assert_contains "$(cat "$ROOT/README.md")" '非公式・実験的'

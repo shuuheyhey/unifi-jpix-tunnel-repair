@@ -1,4 +1,6 @@
-# UDM Pro 導入・移行runbook
+# UDM Pro 導入・移行runbook (v1)
+
+この文書はUniFi管理トンネルを補正するv1の保守資料です。現行v2の導入・設定・移行・復旧は[v2ガイド](v2.md)、確認済み範囲は[Validation](validation.md#v2の実機検証範囲)を参照してください。以下のv1操作をv2稼働環境へそのまま適用しないでください。
 
 この文書は、初めてこのrepositoryを見る人が、管理PCからUDM Proへファイルを渡し、JPIX「v6プラス」固定IPサービスの1 IP品目を手動検証し、明示的なgateを通過した環境でautomationと再起動復帰を確認するための一本道の手順です。現在の方式は、UniFi管理トンネルを共有して補正するexperimental repairです。インストーラーはautomationを有効化せず、手動apply、rollback、再applyが完了するまで無効のまま進めます。
 

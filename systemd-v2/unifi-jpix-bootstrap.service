@@ -1,0 +1,18 @@
+[Unit]
+Description=Restore and start the UniFi JPIX v2 reconciler
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+ConditionPathExists=/data/unifi-jpix-tunnel-repair/current
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+ExecStart=/data/unifi-jpix-tunnel-repair/current/scripts/unifi-jpix-bootstrap.sh
+RemainAfterExit=yes
+TimeoutStartSec=480
+
+[Install]
+WantedBy=multi-user.target

@@ -17,6 +17,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: POSIX syntax
         run: find scripts tests -type f -name '*.sh' -print0 2>/dev/null | xargs -0 -r -n1 sh -n
+      - name: Python syntax
+        run: python3 -m py_compile src/unifi_jpix/*.py tests_v2/*.py
       - name: ShellCheck
         run: find scripts tests -type f -name '*.sh' -print0 2>/dev/null | xargs -0 -r shellcheck -S error -s sh
       - name: Tests

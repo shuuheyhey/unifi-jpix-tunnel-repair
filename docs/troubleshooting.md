@@ -1,4 +1,6 @@
-# Troubleshooting
+# Troubleshooting (v1)
+
+この文書はUniFi管理トンネルを補正するv1の保守資料です。現行v2の導入・設定・移行・復旧は[v2ガイド](v2.md)、確認済み範囲は[Validation](validation.md#v2の実機検証範囲)を参照してください。以下のv1操作をv2稼働環境へそのまま適用しないでください。
 
 調査中に完全address、config、state、provider responseをterminal共有やIssueへ貼り付けないでください。共有する場合はpreflightまたは通常診断のshare-safe出力だけを使用します。
 
