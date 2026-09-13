@@ -783,6 +783,10 @@ class Reconciler:
         insertion = ("-I", chain, "1") if insert_first else ("-A", chain)
         return [Action(reason, tuple(_xtables_command(binary, *prefix, *insertion, *rule)), tuple(_xtables_command(binary, *prefix, "-D", chain, *rule)))]
 
+    def _settle_delays(self, actions: list[Action]) -> tuple[int, ...]:
+        # Standalone mode only needs a delayed check after a monitor update.
+        return (10,) if any(action.reason == 'wan-monitor-binding-drift' for action in actions) else ()
+
     def reconcile(self) -> dict[str, Any]:
         try:
             lock = self.state.lock()
@@ -815,10 +819,11 @@ class Reconciler:
                     else:
                         self.runner.run(action.command)
                     self.state.transaction_progress(completed)
-                if any(action.reason in {'wan-monitor-binding-drift', 'managed-wan-config-drift'} for action in actions):
-                    # UDAPI returns before rebuilding user-hook chains. Wait for
-                    # that rebuild, then repair only our own missing resources.
-                    time.sleep(10)
+                for delay in self._settle_delays(actions):
+                    # Managed WAN restores its endpoint immediately, then checks
+                    # for late asynchronous rebuilds under the same lock/journal.
+                    if delay:
+                        time.sleep(delay)
                     capabilities, resources, settled = self.plan()
                     if any(action.apply_callback for action in settled):
                         raise MutationError('monitor-configuration-unstable')

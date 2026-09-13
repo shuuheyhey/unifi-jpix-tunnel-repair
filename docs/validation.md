@@ -4,6 +4,26 @@ v2の確認済み範囲を先に記載し、v1の過去実績と検証手順を�
 
 ## v2の実機検証範囲
 
+### 2026-09-14: 設定再適用時の修復待機短縮（dev.22）
+
+`dev.21`では、利用者の設定保存と同じ時刻にUniFiの設定再適用、kernel tunnelの送信元未設定、WAN監視down、9件の自動補正、WAN監視upを確認しました。設定再適用開始から補正完了まで約24秒でした。修正済みのWAN DNSは保持されており、DNS設定不足の再発とは区別します。この時間はPCで測定した通信停止時間ではありません。
+
+`dev.22`ではnetlink debounceを5秒から1秒、UDAPI path起動前待機を10秒から1秒へ短縮しました。managed modeはAPI応答後、10秒待ってからkernel endpointを直すのではなく、まず再planして補正します。その後も同じlockとtransaction内で1秒間隔の待機を挟み10回再確認し、遅れて消えるproject firewallなどに追従します。実際の間隔にはplan/command実行時間が加わります。新たなAPI callbackが必要な競合は上書きを繰り返さず停止します。変更なしのreconcileには追加待機を入れません。
+
+| 検証 | 結果・制約 |
+| --- | --- |
+| Pythonテスト | ローカル・UDMで79件成功。修正前に失敗する3ケースを確認後に実装。即時endpoint補正、遅延firewall再生成、runtime-only drift、rollback、同時設定変更の拒否を含む |
+| 配置 | source installerでcurrent/verifiedをdev.22へ更新。起動前の3監視unitを停止し、配置後に起動。署名済み公開releaseではない |
+| 配置時の非対象設定 | UDAPI設定全体、project config、非project IPv4/IPv6 firewallの正規化digestが前後一致 |
+| 通信 | 配置後reconcileは修復0件。IPv4/IPv6 HTTPS 204、WAN専用DNSとContent Filter経由DNSでYouTube・MicrosoftがNOERROR |
+| 実際の設定保存 | 利用者の保存1回を観測。設定再適用開始から約7秒後にIPv4 probe復帰。WANはunknownからupへ復帰し、down判定・failover group downは観測なし |
+| 瞬断と追従確認 | 55回の逐次probe中、IPv4失敗3回・フィルターDNS失敗1回。9件補正後の次回reconcileは修復0件。無停止・長時間の再発防止を確認したわけではない |
+| Windows実端末 | dev.22配置と設定保存テスト後、YouTube再生・ゲーム接続の両方が使えると利用者が確認 |
+
+保存時の時系列は、01時02分03秒に設定再適用開始、01時02分05秒にUniFi側apply完了、01時02分10秒にIPv4 probe復帰、01時02分13秒にWAN up、01時02分24秒に追従・health確認完了、01時02分27秒に追加修復0件でした。最後のhealth完了時刻とデータプレーンの復帰時刻は異なります。kernel endpointエラーは01時02分03秒から01時02分10秒に記録されました。probeはUDM上の逐次測定であり、Windows PCの停止時間を厳密測定したものではありません。
+
+WAN監視の閾値・bind設定、Content Filter、契約endpoint、provider通知条件は変更していません。UDM再起動、Network restart、物理WAN/prefix変更、長時間観測は今回実施していません。
+
 ### 2026-09-14: Content Filter併用時のWAN DNS修正（dev.21、UniFi設定変更）
 
 追加されたContent FilterはAd Block・Basic・Google/Bing/YouTube Safe Searchが有効でした。利用者から実端末の症状は報告されていませんでしたが、診断でフィルター経由のDNSが`REFUSED`となる状態を確認しました。WAN専用dnsmasqが参照するresolverファイルは存在せず、上流server設定もありませんでした。通常DNSとIPv4/IPv6 HTTPSは成功していたため、従来のhealthyだけでは検出できない経路です。
@@ -24,7 +44,7 @@ UniFi管理画面でWAN1のIPv4 `Auto DNS Server`を解除し、通常DNSで既�
 
 ### 2026-09-14: UniFi管理WAN統合（dev.20 / dev.21）
 
-standalone所有権方針の見直しを明示承認したうえで、`dev.20`で`integration.mode=unifi-managed`へ移行し、`dev.21`で旧adapterへのrollback拒否を追加しました。現在の`current`と`verified`は`v2.0.0-dev.21`です。source installerによる開発版で、署名済み公開releaseではありません。
+standalone所有権方針の見直しを明示承認したうえで、`dev.20`で`integration.mode=unifi-managed`へ移行し、`dev.21`で旧adapterへのrollback拒否を追加しました。この検証時点の`current`と`verified`は`v2.0.0-dev.21`でした。source installerによる開発版で、署名済み公開releaseではありません。
 
 | 項目 | 結果 | 範囲・制約 |
 | --- | --- | --- |

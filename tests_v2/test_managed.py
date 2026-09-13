@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from unifi_jpix.core import Config, ConfigError, ForeignConflict, MutationError, PrerequisiteUnavailable
+from unifi_jpix.core import Action, Config, ConfigError, ForeignConflict, MutationError, PrerequisiteUnavailable, Resources
 from unifi_jpix.managed import ManagedReconciler, controlled, desired_fields, patch_fields
 from unifi_jpix.integration import allowed_rules, clear_rules, recover
 from unifi_jpix.router import UDAPI_STATE
@@ -176,6 +176,79 @@ class ManagedTests(unittest.TestCase):
         runner = mock.Mock()
         self.assertEqual(recover(self.root, runner), {'status': 'no-recovery-needed'})
         runner.run.assert_not_called()
+
+    def settling_reconciler(self, initial, rounds):
+        capabilities = self.reconciler.discover()
+        self.reconciler.plan = mock.Mock(side_effect=[
+            (capabilities, Resources(10000, 20000), initial),
+            *[(capabilities, Resources(10000, 20000), actions) for actions in rounds],
+        ])
+        self.reconciler._runtime = mock.Mock(return_value={})
+        self.reconciler._health_check = mock.Mock()
+        self.reconciler._notify_provider = mock.Mock(return_value='unchanged')
+        self.reconciler._notify_webhook = mock.Mock()
+        return self.reconciler
+
+    def test_endpoint_is_repaired_before_waiting_for_async_firewall(self):
+        events = []
+        config = Action('managed-wan-config-drift', ('udapi-interface',),
+                        apply_callback=lambda: events.append('config'))
+        endpoint = Action('managed-wan-runtime-drift', ('repair-endpoint',), ('restore-endpoint',))
+        firewall = Action('outer-rule-missing', ('repair-firewall',), ('restore-firewall',))
+        reconciler = self.settling_reconciler([config], [[endpoint], *([[]] * 6), [firewall], *([[]] * 3)])
+        reconciler.runner.run = mock.Mock(side_effect=lambda command: events.append(command[0]))
+        with mock.patch('unifi_jpix.core.time.sleep', side_effect=lambda seconds: events.append(('sleep', seconds))):
+            result = reconciler.reconcile()
+        self.assertEqual(events[:3], ['config', 'repair-endpoint', ('sleep', 1)])
+        self.assertEqual(events.count(('sleep', 1)), 10)
+        self.assertEqual(events.count('repair-firewall'), 1)
+        self.assertEqual(result['repairs'], 3)
+        journal = reconciler.state.read(reconciler.state.journal_path)
+        self.assertEqual(journal['actions'], ['managed-wan-config-drift', 'managed-wan-runtime-drift', 'outer-rule-missing'])
+        self.assertNotIn('repair-endpoint', str(journal))
+
+    def test_runtime_only_drift_also_watches_for_late_rebuild(self):
+        runtime = Action('managed-wan-runtime-drift', ('repair-endpoint',))
+        reconciler = self.settling_reconciler([runtime], [[]] * 11)
+        reconciler.runner.run = mock.Mock()
+        with mock.patch('unifi_jpix.core.time.sleep') as sleep:
+            reconciler.reconcile()
+        self.assertEqual(sleep.call_count, 10)
+        self.assertEqual(reconciler.plan.call_count, 12)
+
+    def test_no_drift_has_no_settle_delay(self):
+        reconciler = self.settling_reconciler([], [])
+        with mock.patch('unifi_jpix.core.time.sleep') as sleep:
+            reconciler.reconcile()
+        sleep.assert_not_called()
+        self.assertEqual(reconciler.plan.call_count, 1)
+
+    def test_fast_repair_keeps_transaction_rollback(self):
+        config = Action('managed-wan-config-drift', ('udapi-interface',), apply_callback=mock.Mock(), undo_callback=mock.Mock())
+        runtime = Action('managed-wan-runtime-drift', ('repair-endpoint',), ('restore-endpoint',))
+        reconciler = self.settling_reconciler([config], [[runtime], *([[]] * 10)])
+        reconciler.runner.run = mock.Mock()
+        reconciler._health_check.side_effect = MutationError('test-health-failed')
+        with mock.patch('unifi_jpix.core.time.sleep'), self.assertRaises(MutationError):
+            reconciler.reconcile()
+        self.assertEqual(reconciler.runner.run.call_args_list, [mock.call(('repair-endpoint',)), mock.call(('restore-endpoint',))])
+        config.undo_callback.assert_called_once()
+
+    def test_concurrent_configuration_is_not_repeatedly_overwritten(self):
+        config = Action('managed-wan-config-drift', ('udapi-interface',), apply_callback=mock.Mock(), undo_callback=mock.Mock())
+        concurrent = Action('managed-wan-config-drift', ('udapi-interface',), apply_callback=mock.Mock())
+        reconciler = self.settling_reconciler([config], [[concurrent]])
+        with mock.patch('unifi_jpix.core.time.sleep'), self.assertRaises(MutationError):
+            reconciler.reconcile()
+        concurrent.apply_callback.assert_not_called()
+        config.undo_callback.assert_called_once()
+
+    def test_event_entrypoints_do_not_wait_ten_seconds_before_repair(self):
+        root = Path(__file__).resolve().parents[1]
+        service = (root / 'systemd-v2/unifi-jpix-udapi-reconcile.service').read_text()
+        monitor = (root / 'scripts/unifi-jpix-event-monitor.sh').read_text()
+        self.assertIn('ExecStartPre=/bin/sleep 1\n', service)
+        self.assertIn('UNIFI_JPIX_DEBOUNCE_SECONDS:-1}', monitor)
 
 
 if __name__ == '__main__':

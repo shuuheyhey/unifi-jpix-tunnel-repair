@@ -32,9 +32,9 @@ IPIPというデータ転送方式が同じでも、JPIX固定IPとHB46PP対応I
 
 ## v2の検証状況
 
-現在の実機releaseは`v2.0.0-dev.21`です。2026-09-14、standalone所有権方針の見直しを明示承認したうえで、単一WANの`unifi-managed`方式へ移行しました。**管理画面の速度測定が成功し、下り4.46 Gbps・上り2.49 Gbps、ISP名と固定IPv4の表示復帰を確認しました。** 実通信はUniFiの論理WANへ統一し、旧`jpix0`と稼働中のroute/rule/firewall参照は残っていません。UDMのIPv4/IPv6 HTTPS、UDP/TCP DNS、7 monitorが正常で、Windows PCのYouTubeとゲーム接続もユーザー確認済みです。単発の速度測定であり性能保証ではありません。
+現在の実機releaseは`v2.0.0-dev.22`です。2026-09-14、standalone所有権方針の見直しを明示承認したうえで、単一WANの`unifi-managed`方式へ移行しました。**管理画面の速度測定が成功し、下り4.46 Gbps・上り2.49 Gbps、ISP名と固定IPv4の表示復帰を確認しました。** 実通信はUniFiの論理WANへ統一し、旧`jpix0`と稼働中のroute/rule/firewall参照は残っていません。統合後のUDM IPv4/IPv6 HTTPS、UDP/TCP DNS、7 monitorが正常で、Windows PCのYouTubeとゲーム接続もユーザー確認済みです。単発の速度測定であり性能保証ではありません。
 
-この統合方式はpreviewです。UDAPIの静的IPv6送信元指定が実機で未実装だったため、対応済みのAPI field更新とkernel endpoint補正を組み合わせています。初回失敗時のstandalone復帰を確認し、最終移行は10分の復旧timer付きで実行して通信確認後に確定しました。Pythonテスト73件をローカルとUDMで確認しています。新方式での再起動・WAN切替・Network reprovisionは未実施です。手順と所有権境界は[v2ガイド](docs/v2.md#unifi管理wanへの統合preview)を参照してください。
+この統合方式はpreviewです。UDAPIの静的IPv6送信元指定が実機で未実装だったため、対応済みのAPI field更新とkernel endpoint補正を組み合わせています。初回失敗時のstandalone復帰を確認し、最終移行は10分の復旧timer付きで実行して通信確認後に確定しました。`dev.22`は設定保存時の修復待機を短縮し、Pythonテスト79件をローカルとUDMで確認しています。利用者の設定保存1回ではWAN down判定は発生せず、設定再適用開始から約7秒後にIPv4 probeが復帰しましたが、短い通信失敗は残りました。無停止保証ではありません。新方式での再起動・WAN切替・Network application restartは未実施です。手順と所有権境界は[v2ガイド](docs/v2.md#unifi管理wanへの統合preview)を参照してください。
 
 2026-09-13、UDM Proを`v2.0.0-dev.15`へ更新しました。明示opt-inの単一WAN adapterで、UDM自身の通常IPv4/DNS経路と回線監視を補正します。監視更新後のUniFi user-hook再生成にも再reconcileで対応し、限定した経路rule・monitor/firewall drift試験で自動復元を確認しました。詳細と制約は[v2ガイド](docs/v2.md)を参照してください。
 

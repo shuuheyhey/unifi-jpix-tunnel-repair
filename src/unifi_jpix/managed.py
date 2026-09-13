@@ -55,6 +55,13 @@ def desired_fields(interface, config, capabilities):
 
 
 class ManagedReconciler(Reconciler):
+    def _settle_delays(self, actions):
+        # Never leave an invalid kernel endpoint in place for the firewall's
+        # settling period. Repair as soon as UDAPI returns, then observe for ten
+        # more seconds because its netlink/firewall writes can arrive later.
+        # Runtime-only drift needs the same follow-through, not just API PUTs.
+        return (0, *([1] * 10)) if actions else ()
+
     def configuration(self):
         result = self.runner.run(['cat', UDAPI_STATE], check=False)
         try:

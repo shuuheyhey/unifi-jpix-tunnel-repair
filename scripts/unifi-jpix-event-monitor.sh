@@ -3,7 +3,7 @@ set -eu
 
 SYSTEMCTL=${UNIFI_JPIX_SYSTEMCTL:-systemctl}
 IP=${UNIFI_JPIX_IP:-ip}
-DEBOUNCE=${UNIFI_JPIX_DEBOUNCE_SECONDS:-5}
+DEBOUNCE=${UNIFI_JPIX_DEBOUNCE_SECONDS:-1}
 RUNTIME_DIR=${UNIFI_JPIX_RUNTIME_DIR:-/run/unifi-jpix}
 
 case $DEBOUNCE in ''|*[!0-9]*|0) printf '%s\n' 'invalid debounce interval' >&2; exit 2 ;; esac

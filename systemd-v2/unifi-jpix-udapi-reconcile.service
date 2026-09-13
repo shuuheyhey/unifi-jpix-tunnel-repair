@@ -1,5 +1,5 @@
 [Unit]
-Description=Reconcile JPIX after the asynchronous UniFi firewall rebuild
+Description=Repair JPIX promptly and follow asynchronous UniFi rebuilds
 After=network-online.target
 ConditionPathExists=/data/unifi-jpix-tunnel-repair/config-v2.json
 
@@ -12,6 +12,6 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectHome=yes
 ReadOnlyPaths=/data/unifi-jpix-tunnel-repair/current /data/unifi-jpix-tunnel-repair/config-v2.json -/data/unifi-jpix-tunnel-repair/credentials-v2.json
-ExecStartPre=/bin/sleep 10
+ExecStartPre=/bin/sleep 1
 ExecStart=/data/unifi-jpix-tunnel-repair/current/bin/unifi-jpix reconcile --retry
 TimeoutStartSec=210
