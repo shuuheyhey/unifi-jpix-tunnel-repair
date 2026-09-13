@@ -1,5 +1,0 @@
-#!/bin/sh
-set -u
-
-[ -z "${RUNTIME_LOGGER_LOG:-}" ] || printf '%s\n' "$*" >>"$RUNTIME_LOGGER_LOG"
-exit 0

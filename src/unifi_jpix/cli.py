@@ -13,7 +13,7 @@ import time
 from typing import Any
 
 from . import __version__
-from .core import Config, ConfigError, DEFAULT_ROOT, JpixError, Reconciler, Runner, SUPPORTED_MODELS, _reason_code
+from .core import Config, DEFAULT_ROOT, JpixError, Reconciler, Runner, SUPPORTED_MODELS, _reason_code
 from .release import ReleaseManager
 
 
@@ -39,8 +39,6 @@ def parser() -> argparse.ArgumentParser:
     mode.add_argument('--confirm', action='store_true')
     upgrade = commands.add_parser("upgrade")
     upgrade.add_argument("--release", required=True)
-    migrate = commands.add_parser("migrate-v1")
-    migrate.add_argument("--activate", action="store_true")
     return result
 
 
@@ -122,130 +120,6 @@ def _doctor(args: argparse.Namespace) -> dict[str, Any]:
     return {"status": status, "checks": checks}
 
 
-def _migrate_v1(args: argparse.Namespace) -> dict[str, Any]:
-    root = args.root
-    gateway = root / "config/gateway.conf"
-    networks = root / "config/routed-networks.conf"
-    if not gateway.is_file() or not networks.is_file():
-        raise ConfigError("v1 configuration is unavailable")
-    values: dict[str, str] = {}
-    allowed = {"STATIC_V4", "BR_V6", "IID", "ENDPOINT_IF", "TUN_MTU", "TCP_MSS"}
-    for line in gateway.read_text(encoding="utf-8").splitlines():
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        if key in allowed:
-            values[key] = value
-    required = {"STATIC_V4", "BR_V6", "IID", "ENDPOINT_IF"}
-    if not required.issubset(values):
-        raise ConfigError("v1 configuration is incomplete")
-    routed = []
-    for line in networks.read_text(encoding="utf-8").splitlines():
-        line = line.split("#", 1)[0].strip()
-        if not line:
-            continue
-        fields = line.split()
-        if len(fields) != 2:
-            raise ConfigError("v1 networks configuration is invalid")
-        routed.append({"interface": fields[0], "ipv4_cidr": fields[1]})
-    draft = {
-        "schema_version": 2,
-        "service": "jpix-v6plus-static-ipv4-one",
-        "static_ipv4": values["STATIC_V4"],
-        "br_ipv6": values["BR_V6"],
-        "iid": values["IID"],
-        "endpoint_network": {"interface": values["ENDPOINT_IF"]},
-        "routed_networks": routed,
-        "tunnel": {"name": "jpix0", "mtu": int(values.get("TUN_MTU", "1460")), "tcp_mss": int(values.get("TCP_MSS", "1420"))},
-        "firewall": {"outer_ipip_allow": True},
-        "repair": {"interval_seconds": 300},
-    }
-    provider_path = root / "config/provider-update.conf"
-    provider_values: dict[str, str] = {}
-    if provider_path.is_file():
-        for line in provider_path.read_text(encoding="utf-8").splitlines():
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            if key in {"UPDATE_URL", "UPDATE_USERNAME", "UPDATE_PASSWORD", "ALLOW_INSECURE_UPDATE_HTTP", "INSECURE_UPDATE_HTTP_HOST"}:
-                provider_values[key] = value.strip().strip("'\"")
-        update_url = provider_values.get("UPDATE_URL")
-        if update_url:
-            draft["provider"] = {
-                "update_url": update_url,
-                "allow_insecure_http": provider_values.get("ALLOW_INSECURE_UPDATE_HTTP") == "yes",
-                "insecure_http_host": provider_values.get("INSECURE_UPDATE_HTTP_HOST") or None,
-                "credentials_file": str(root / "credentials-v2.json"),
-            }
-    if not args.activate:
-        return {"status": "draft", "configuration": draft}
-    target = root / "config-v2.json"
-    if not target.exists():
-        descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            json.dump(draft, stream, indent=2, sort_keys=True)
-            stream.write("\n")
-    Config.load(target)
-    if provider_values.get("UPDATE_URL"):
-        credentials_target = root / "credentials-v2.json"
-        if not credentials_target.exists():
-            username = provider_values.get("UPDATE_USERNAME")
-            password = provider_values.get("UPDATE_PASSWORD")
-            if not username or not password:
-                raise ConfigError("v1 provider credentials are incomplete")
-            descriptor = os.open(credentials_target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-                json.dump({"provider_username": username, "provider_password": password}, stream)
-                stream.write("\n")
-    v1_units = [
-        "unifi-jpix-tunnel-repair-trigger.service",
-        "unifi-jpix-tunnel-repair-watch.service",
-        "unifi-jpix-tunnel-repair-update.timer",
-    ]
-    subprocess.run(["systemctl", "stop", *v1_units], check=False)
-    off = subprocess.run([str(root / "scripts/unifi-jpix-tunnel-repair-apply.sh"), "off"], check=False)
-    if off.returncode != 0:
-        subprocess.run(["systemctl", "start", *v1_units], check=False)
-        raise JpixError("v1 off failed")
-    reconciler = Reconciler(Config.load(target), root)
-    try:
-        last_error: JpixError | None = None
-        for delay in (0, 5, 15, 60):
-            if delay:
-                time.sleep(delay)
-            try:
-                result = reconciler.reconcile()
-                break
-            except JpixError as exc:
-                last_error = exc
-        else:
-            assert last_error is not None
-            raise last_error
-        boot_enabled = subprocess.run(["systemctl", "enable", "unifi-jpix-bootstrap.service"], check=False)
-        boot_started = subprocess.run(["systemctl", "start", "unifi-jpix-bootstrap.service"], check=False)
-        disabled = subprocess.run(["systemctl", "disable", *v1_units], check=False)
-        if disabled.returncode != 0 or boot_enabled.returncode != 0 or boot_started.returncode != 0:
-            raise JpixError("automation handoff failed")
-    except Exception as exc:
-        subprocess.run([
-            "systemctl", "disable", "--now",
-            "unifi-jpix-bootstrap.service", "unifi-jpix-reconcile.timer",
-            "unifi-jpix-event-monitor.service",
-            "unifi-jpix-udapi.path",
-            "unifi-jpix-udapi-reconcile.service",
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-        try:
-            reconciler.deactivate()
-        except JpixError as cleanup_error:
-            raise JpixError("v2 migration cleanup failed; v1 remains stopped") from cleanup_error
-        restored = subprocess.run([str(root / "scripts/unifi-jpix-tunnel-repair-apply.sh"), "apply"], check=False)
-        restarted = subprocess.run(["systemctl", "enable", "--now", *v1_units], check=False)
-        if restored.returncode != 0 or restarted.returncode != 0:
-            raise JpixError("v2 migration and v1 restoration failed") from exc
-        raise
-    return {"status": "migrated", "result": result}
-
-
 def _upgrade(args: argparse.Namespace) -> dict[str, Any]:
     manager = ReleaseManager(args.root)
     selected = manager.upgrade(args.release)
@@ -290,8 +164,6 @@ def main(argv: list[str] | None = None) -> int:
             result = operation(args.root)
         elif args.command == "discover" and not _config_path(args).is_file():
             result = _generic_discover(Runner())
-        elif args.command == "migrate-v1":
-            result = _migrate_v1(args)
         elif args.command == "upgrade":
             result = _upgrade(args)
         elif args.command == "rollback":

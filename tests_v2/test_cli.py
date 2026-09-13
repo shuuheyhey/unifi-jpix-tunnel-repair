@@ -1,67 +1,44 @@
 from __future__ import annotations
 
 import argparse
-import os
+import contextlib
+import io
 from pathlib import Path
-import subprocess
-import tempfile
 import unittest
 from unittest import mock
 
-from unifi_jpix.cli import _migrate_v1
-from unifi_jpix.core import MutationError
+from unifi_jpix.cli import main, parser, _rollback
 
 
-class MigrationTests(unittest.TestCase):
-    def setUp(self):
-        directory = tempfile.TemporaryDirectory()
-        self.addCleanup(directory.cleanup)
-        self.root = Path(directory.name)
-        config = self.root / "config"
-        config.mkdir()
-        (config / "gateway.conf").write_text(
-            "STATIC_V4=203.0.113.42\n"
-            "BR_V6=2001:db8:ffff::1\n"
-            "IID=00cb:0071:2a00:0000\n"
-            "ENDPOINT_IF=br0\n",
-            encoding="utf-8",
-        )
-        (config / "routed-networks.conf").write_text("br0 192.168.20.0/24\n", encoding="utf-8")
-        self.args = argparse.Namespace(root=self.root, activate=True)
+class CliTests(unittest.TestCase):
+    def test_retired_migration_is_rejected_before_any_operation(self):
+        with mock.patch("unifi_jpix.cli.subprocess.run") as run, contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as raised:
+                main(["migrate-v1", "--activate"])
+        self.assertEqual(raised.exception.code, 2)
+        run.assert_not_called()
 
-    def test_activation_stops_v1_before_off_and_v2_reconcile(self):
-        calls: list[tuple[str, ...]] = []
+    def test_supported_commands_remain_available(self):
+        for arguments in (
+            ["discover"], ["check"], ["plan"], ["reconcile", "--retry"],
+            ["status", "--json"], ["doctor"], ["rollback"],
+            ["upgrade", "--release", "v2.1.0"],
+            ["integrate-wan", "--activate"], ["integrate-wan", "--recover"],
+            ["integrate-wan", "--confirm"],
+        ):
+            with self.subTest(arguments=arguments):
+                self.assertEqual(parser().parse_args(arguments).command, arguments[0])
 
-        def run(command, **_kwargs):
-            calls.append(tuple(str(item) for item in command))
-            return subprocess.CompletedProcess(command, 0, "", "")
-
-        with mock.patch.dict(os.environ, {"UNIFI_JPIX_ALLOW_DOCUMENTATION_ADDRESSES": "1"}), \
-             mock.patch("unifi_jpix.cli.subprocess.run", side_effect=run), \
-             mock.patch("unifi_jpix.cli.Reconciler.reconcile", return_value={"status": "healthy"}):
-            result = _migrate_v1(self.args)
-        self.assertEqual(result["status"], "migrated")
-        self.assertEqual(calls[0][:2], ("systemctl", "stop"))
-        self.assertEqual(calls[1][-1], "off")
-        self.assertTrue(any(command[:2] == ("systemctl", "disable") for command in calls))
-        self.assertTrue(any(command == ("systemctl", "enable", "unifi-jpix-bootstrap.service") for command in calls))
-        self.assertTrue(any(command == ("systemctl", "start", "unifi-jpix-bootstrap.service") for command in calls))
-
-    def test_failed_v2_reconcile_reapplies_and_restarts_v1(self):
-        calls: list[tuple[str, ...]] = []
-
-        def run(command, **_kwargs):
-            calls.append(tuple(str(item) for item in command))
-            return subprocess.CompletedProcess(command, 0, "", "")
-
-        with mock.patch.dict(os.environ, {"UNIFI_JPIX_ALLOW_DOCUMENTATION_ADDRESSES": "1"}), \
-             mock.patch("unifi_jpix.cli.subprocess.run", side_effect=run), \
-             mock.patch("unifi_jpix.cli.time.sleep"), \
-             mock.patch("unifi_jpix.cli.Reconciler.reconcile", side_effect=MutationError("failed")):
-            with self.assertRaises(MutationError):
-                _migrate_v1(self.args)
-        self.assertTrue(any(command[-1] == "apply" for command in calls))
-        self.assertTrue(any(command[:3] == ("systemctl", "enable", "--now") for command in calls))
+    def test_rollback_only_bootstraps_the_selected_v2_release(self):
+        args = argparse.Namespace(root=Path("/test-root"))
+        with mock.patch("unifi_jpix.cli.ReleaseManager") as manager, mock.patch("unifi_jpix.cli.subprocess.run") as run:
+            manager.return_value.rollback.return_value = {"release": "v2.0.0"}
+            run.return_value.returncode = 0
+            self.assertEqual(_rollback(args)["runtime"], "reconciled")
+            run.assert_called_once_with(
+                ["/test-root/current/scripts/unifi-jpix-bootstrap.sh"],
+                capture_output=True, text=True, check=False,
+            )
 
 
 if __name__ == "__main__":

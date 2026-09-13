@@ -44,6 +44,6 @@ The connection diagnostic page reports browser-observed source addresses, source
 
 ## Project status
 
-This repository is an independent, unsupported integration. Live validation on one UDM Pro and UniFi OS 5 tuple confirmed native IPv6, DHCPv6-PD LAN `/64` evidence, a UniFi-managed IPIP6 tunnel, validated UniFi user hooks, project-controlled dry-run and apply, target-LAN IPv4/IPv6/DNS, provider notification, timed recovery, rollback, reapply, and reboot recovery. The new trigger, watch, and update timer were enabled and remained active after reboot; a short status soak and the first scheduled provider update succeeded. Public provider documentation and live reachability checks did not establish a supported HTTPS update endpoint, so the documented HTTP endpoint remains in use rather than guessing an HTTPS URL. Reprovision, prefix-change recovery, standalone-tunnel comparison, PMTUD, non-target-LAN client validation, and post-change browser validation remain open in Issues #3 through #7.
+This repository is an independent, unsupported v2 integration. The retired v1 shell runtime and migration fallback are no longer distributed. Historical observations remain in the validation records; they do not establish validation of a different release or integration mode. See [v2](docs/v2.md), [validation](docs/validation.md), and [v1 retirement](docs/v1-retirement.md) for current boundaries. Existing immutable rollback releases are preserved, not edited in place.
 
 No provider credentials or assigned deployment addresses are included in this repository.

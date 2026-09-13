@@ -22,6 +22,22 @@ done
 printf '%s\n' "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$' || { printf '%s\n' 'invalid install version' >&2; exit 2; }
 for command in python3 systemctl install; do command -v "$command" >/dev/null 2>&1 || { printf 'missing dependency: %s\n' "$command" >&2; exit 1; }; done
 
+# Do not run legacy off/apply: they may restore a stale native tunnel.
+# Inspect every legacy entry point before modifying files or release links.
+for suffix in apply.service trigger.service watch.service update.service update.timer; do
+  unit=unifi-jpix-tunnel-repair-$suffix
+  properties=$(systemctl show "$unit" -p LoadState -p ActiveState -p UnitFileState 2>/dev/null) || {
+    printf '%s\n' 'unifi_jpix_install status=blocked reason=legacy-state-unknown' >&2; exit 1;
+  }
+  load=$(printf '%s\n' "$properties" | sed -n 's/^LoadState=//p')
+  active=$(printf '%s\n' "$properties" | sed -n 's/^ActiveState=//p')
+  enabled=$(printf '%s\n' "$properties" | sed -n 's/^UnitFileState=//p')
+  case "$load:$active:$enabled" in
+    not-found:inactive:|not-found:inactive:not-found|loaded:inactive:disabled|loaded:inactive:static|masked:inactive:masked) ;;
+    *) printf '%s\n' 'unifi_jpix_install status=blocked reason=legacy-not-retired' >&2; exit 1 ;;
+  esac
+done
+
 install -d -m 0755 "$ROOT" "$ROOT/releases"
 install -d -m 0700 "$ROOT/state-v2"
 if [ -z "$PUBLIC_KEY" ] && [ -f "$SOURCE_ROOT/config/release-signing-public.pem" ]; then
@@ -54,7 +70,6 @@ if [ ! -d "$RELEASE" ]; then
   install -m 0755 "$SOURCE_ROOT/bin/unifi-jpix" "$STAGE/bin/unifi-jpix"
   install -m 0755 "$SOURCE_ROOT/scripts/unifi-jpix-bootstrap.sh" "$STAGE/scripts/unifi-jpix-bootstrap.sh"
   install -m 0755 "$SOURCE_ROOT/scripts/unifi-jpix-event-monitor.sh" "$STAGE/scripts/unifi-jpix-event-monitor.sh"
-  install -m 0755 "$SOURCE_ROOT/scripts/unifi-jpix-timed-recovery.sh" "$STAGE/scripts/unifi-jpix-timed-recovery.sh"
   install -m 0644 "$SOURCE_ROOT"/src/unifi_jpix/*.py "$STAGE/src/unifi_jpix/"
   install -m 0644 "$SOURCE_ROOT"/systemd-v2/* "$STAGE/systemd-v2/"
 

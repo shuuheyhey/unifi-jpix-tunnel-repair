@@ -4,6 +4,14 @@ v2の確認済み範囲を先に記載し、v1の過去実績と検証手順を�
 
 ## v2の実機検証範囲
 
+### 2026-09-14: v1廃止（dev.23）
+
+v1実装・移行CLI・v1復帰scriptを現行配布から撤去し、UDM Proへsource installerでdev.23を配置しました。current/verifiedはdev.23、previousはdev.22です。旧v1の24ファイルは利用者の承認後、全対象のowner・mode・inode・hashと停止状態を再確認して削除しました。[廃止記録](v1-retirement.md)に対象と除外範囲を記載しています。
+
+ローカルとUDMでPython 80テストとv2 shell suiteが成功しました。IPv4/IPv6 HTTPS 204、DNSのport 53/20201/1053それぞれでA/AAAA・UDP/TCPのNOERRORを確認しました。v2 config、credential、marker、UDAPI設定、対象外firewall、残存診断ファイルの内容一致を確認しました。最終statusはhealthy・pending repairs 0、起動用4 unitはenabled/activeです。
+
+復旧先manifestとmanaged capabilityを検証し、試行用v2復旧timerを解除しました。実rollback、再起動、設定保存、Windows実端末の再試験はこのphaseでは実施していません。既存の不変releaseを編集しないため、その内部には旧移行コードが残ります。これは稼働中v1 automationではありません。
+
 ### 2026-09-14: 設定再適用時の修復待機短縮（dev.22）
 
 `dev.21`では、利用者の設定保存と同じ時刻にUniFiの設定再適用、kernel tunnelの送信元未設定、WAN監視down、9件の自動補正、WAN監視upを確認しました。設定再適用開始から補正完了まで約24秒でした。修正済みのWAN DNSは保持されており、DNS設定不足の再発とは区別します。この時間はPCで測定した通信停止時間ではありません。
@@ -261,4 +269,4 @@ sudo /data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-update.sh -
 
 ## 結果の共有
 
-Issueへ共有できるのは`PREFLIGHT_MODE=share-safe`または`DIAGNOSTIC_MODE=share-safe`の出力です。接続判定ページのcopyやscreenshotは共有安全ではありません。完全address、prefix、interface名、port、MAC、serial、device ID、時刻、config、state、完全診断は一般化または削除してください。
+現行v2ではCLI出力を確認し、機器固有値を除いた状態・reason codeを共有してください。後半の`PREFLIGHT_MODE=share-safe`と`DIAGNOSTIC_MODE=share-safe`は廃止したv1の歴史的記録です。接続判定ページのcopyやscreenshotは共有安全ではありません。完全address、prefix、interface名、port、MAC、serial、device ID、時刻、config、state、完全診断は一般化または削除してください。

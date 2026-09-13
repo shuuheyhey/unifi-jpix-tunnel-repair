@@ -1,7 +1,0 @@
-#!/bin/sh
-{
-  printf 'curl'
-  for arg in "$@"; do printf ' %s' "$arg"; done
-  printf '\n'
-} >>"$WAIT_EXTERNAL_LOG"
-exit 97

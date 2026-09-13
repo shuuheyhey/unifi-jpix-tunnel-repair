@@ -28,7 +28,6 @@ install -d -m 0755 "$RELEASE/bin" "$RELEASE/scripts" "$RELEASE/src/unifi_jpix" "
 install -m 0755 "$SOURCE_ROOT/bin/unifi-jpix" "$RELEASE/bin/unifi-jpix"
 install -m 0755 "$SOURCE_ROOT/scripts/unifi-jpix-bootstrap.sh" "$RELEASE/scripts/unifi-jpix-bootstrap.sh"
 install -m 0755 "$SOURCE_ROOT/scripts/unifi-jpix-event-monitor.sh" "$RELEASE/scripts/unifi-jpix-event-monitor.sh"
-install -m 0755 "$SOURCE_ROOT/scripts/unifi-jpix-timed-recovery.sh" "$RELEASE/scripts/unifi-jpix-timed-recovery.sh"
 install -m 0644 "$SOURCE_ROOT"/src/unifi_jpix/*.py "$RELEASE/src/unifi_jpix/"
 install -m 0644 "$SOURCE_ROOT"/systemd-v2/* "$RELEASE/systemd-v2/"
 

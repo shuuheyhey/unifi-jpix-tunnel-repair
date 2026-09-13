@@ -1,101 +1,11 @@
-# Troubleshooting (v1)
+# Troubleshooting (v2)
 
-この文書はUniFi管理トンネルを補正するv1の保守資料です。現行v2の導入・設定・移行・復旧は[v2ガイド](v2.md)、確認済み範囲は[Validation](validation.md#v2の実機検証範囲)を参照してください。以下のv1操作をv2稼働環境へそのまま適用しないでください。
+まず `unifi-jpix status --json`、`doctor`、`check`、`plan` を確認します。公開前に機器固有値を確認・除去し、config/state/raw journalを貼らないでください。
 
-調査中に完全address、config、state、provider responseをterminal共有やIssueへ貼り付けないでください。共有する場合はpreflightまたは通常診断のshare-safe出力だけを使用します。
+1. `healthy` はdesired stateとの差分なしを意味します。新しい通信probeではないので、直近healthと実端末のIPv4・IPv6・DNSを別に確認します。
+2. 前提不成立ならWAN link、BR経路、対象bridgeの一意なglobal kernel `/64` を確認します。aggregate PD route不在だけでPD失敗と断定しません。
+3. foreign conflictなら対象資産の所有者を確認します。route/rule/firewallの一括flushで解消しないでください。
+4. Content Filter併用時はWAN専用DNSとfilter転送経路も確認します。[WAN DNSの注意](v2.md#content-filterを併用する場合のwan-dns)を参照してください。
+5. bootstrap欠落なら既知の同release installerで再配置します。release変更なら[Rollback](rollback.md)の互換性と別管理経路を先に確認します。
 
-## Preflightが`RESULT=needs-attention`
-
-`missing`または`absent`の項目を上から確認します。root、依存command、exact platform tuple、legacy backend、native IPv6、DHCPv6-PD、IPIP6 tunnel、UniFi user chain、親jumpの順に切り分けます。
-
-### `PLATFORM_COMPATIBILITY=unknown`
-
-UniFi OS、`/usr/lib/unifi/webapps/ROOT/app-unifi/.version`のNetwork version、kernel、iproute2、iptables/ip6tables backendのどれかが`config/verified-platforms.conf`と完全一致していません。古いdpkg recordの有無や「UniFi OS 5系だから」という推測で通過させません。upgrade後は新tupleをread-only調査し、reviewと実機検証を経てmatrixを更新します。
-
-### PD evidenceが両方`absent`
-
-`DHCPV6_PD_ROUTE=absent`かつ`DHCPV6_PD_LAN64_EVIDENCE=absent`なら、PD未成立の可能性があります。UniFi OS 5の実機で確認した、aggregate `/48`〜`/63` routeを残さずLAN bridge向けglobal `/64`を`proto kernel`として展開する状態は、後者を`present`として検出します。bridge以外のglobal `/64`はPD evidenceとして受理しません。
-
-この組み合わせを見てWAN設定を変更せず、実機上で次を追加確認します。
-
-- UniFi WAN IPv6がDHCPv6で、契約に合うprefix delegation sizeを要求している
-- DHCPv6 client processが稼働している
-- log上でIA_PDを受信し、no-prefixエラーが継続していない
-- LAN bridgeへglobal `/64`が配布されている
-- clientがnative IPv6を利用できる
-
-確認結果には実prefixやinterface名を含めず、件数とpresent/absentだけを共有してください。現行検出ロジックの追跡は[Issue #1](https://github.com/shuuheyhey/unifi-jpix-tunnel-repair/issues/1)で行います。
-
-### `IPIP6_TUNNEL_READY_COUNT=0`
-
-- UniFi WAN設定が想定するIPv4 over IPv6接続を生成しているか確認する
-- `ip -d -6 tunnel show`は実機内だけで確認する
-- mode、remote、localが存在する候補を確認する
-- 独自トンネルを追加して回避しない
-
-### UniFi user chainまたはparent jumpが`absent`
-
-UniFi OS updateでchain名、親chain接続、netfilter backendが変わった可能性があります。applyへ進まず、exact version、backend、chain inventoryを実機内で確認してください。既存chainを手動作成せず、global `POSTROUTING`や`INPUT`へfallbackしません。
-
-### `ENDPOINT_PREFIX_STATUS=missing-or-ambiguous`
-
-設定した`ENDPOINT_IF`にglobal kernel `/64`が0件または複数あります。WAN/BR route sourceの上位64bitで代用しません。UniFi LAN設定、delegated prefix、exact interfaceのkernel routeを照合し、一意にならない場合は停止します。
-
-### discoveryのトンネル候補が複数ある
-
-clean installでは推測や先頭候補の採用をせず停止します。旧実装からの移行に限り、旧`status`がhealthy、旧configで明示されたinterfaceがBR remote一致候補内、root-only backupとtimed recoveryが準備済み、の全条件を満たすときだけ同じinterfaceを継続候補として手動指定できます。根拠はprivate worksheetへ残し、Issueへinterface名を貼りません。
-
-## `invalid ... configuration`
-
-- directoryのcanonical path、owner、mode、symlinkを確認する
-- 3つの実configが同じ安全なdirectoryにあることを確認する
-- 未知key、重複key、空の必須値、example valueを確認する
-- configをshellでsourceして調査しない
-
-## 診断が`RESULT=not-ready`
-
-通常stdoutには状態だけが表示されます。完全診断を実機上のprivate fileへ作成し、WAN、PD、BR route、route source、tunnel、reserved table、policy rule、netfilterの順に確認します。完全診断をIssueへ貼らないでください。
-
-## Applyまたはstatusが失敗する
-
-```sh
-sudo /data/unifi-jpix-tunnel-repair/scripts/unifi-jpix-tunnel-repair-apply.sh status
-sudo journalctl -u unifi-jpix-tunnel-repair-apply.service -n 100 --no-pager
-```
-
-journalは共有せず実機内で確認します。`phase=`、`drift=`、rollback結果を確認し、同じ状態でapplyを繰り返さないでください。rollback work directoryが保存された場合は削除せず、復旧資料として保全します。
-
-### 旧実装稼働中のdry-runがresource collisionになる
-
-旧実装が同じtable、rule priority、tunnel、hookを所有している可能性があります。衝突検査を緩めず、timed recoveryをactiveにして旧automationを停止し、確認済みの旧`off`でmanaged stateを戻した直後にdry-runを再実行します。それでもexit `0`でなければapplyしません。
-
-### `off`が元トンネルlocalを復元できない
-
-元値がIPv4-mapped IPv6表現でも、対応releaseはstrict validation後にsnapshotと完全一致する値を復元します。古いreleaseで失敗した場合は手動変換・削除を行わず、stateと完全出力を実機内に保全し、timed recoveryで旧実装へ戻してから更新してください。
-
-### apply後にtag付きSNAT ruleだけが消える
-
-UniFiの再書き戻しや新旧serviceの競合が疑われます。調査中は新旧automationを停止し、`status`でdriftを確認してから手動applyを1回だけ実行し、時間を置いて再度`status`を確認します。再発時はautomationを再開せず、[Issue #3](https://github.com/shuuheyhey/unifi-jpix-tunnel-repair/issues/3)のreprovision・共有所有権検証として扱います。
-
-## Provider更新が失敗する
-
-- 設定されたURL scheme、IPv6 source endpoint、credential、provider availabilityを確認する
-- `UPDATE_INTERVAL_SECONDS=0`では定期通知が無効になる
-- HTTP-only endpointでは明示opt-inとhost完全一致が必要
-- providerが明示していないHTTPS URLへ推測で切り替えない
-- provider response bodyやcredentialをlogへ出さない
-- 検証済みHTTP success前にstateが更新されていないことを確認する
-
-## systemd serviceが起動しない
-
-```sh
-sudo systemctl status unifi-jpix-tunnel-repair-apply.service unifi-jpix-tunnel-repair-trigger.service unifi-jpix-tunnel-repair-watch.service unifi-jpix-tunnel-repair-update.timer
-sudo systemctl is-enabled unifi-jpix-tunnel-repair-trigger.service unifi-jpix-tunnel-repair-watch.service unifi-jpix-tunnel-repair-update.timer
-sudo systemctl list-dependencies unifi-jpix-tunnel-repair-trigger.service
-```
-
-config存在条件、WAN readiness timeout、apply.serviceの失敗を先に確認します。triggerとwatchはapply成功前には起動しません。runbookでautomationを有効化済みの環境では、3 unitが`enabled`かつ`active`であることも確認します。
-
-## UniFi OS upgrade後
-
-自動化を停止し、preflight、トンネルmode、BR remote、WAN route source、netfilter chain、dry-runを再確認します。互換性を推測して即時再適用しないでください。
+使用中のUniFi管理 `ip6tnl1` は旧v1資産とは限りません。現在のintegrationを確認せず削除しないでください。設定保存時の短い通信断を完全に防ぐ保証はありません。

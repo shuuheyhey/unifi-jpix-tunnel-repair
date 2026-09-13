@@ -16,7 +16,7 @@ This project must:
 - roll back invocation-owned mutations after apply failures or signals;
 - modify and remove only state whose ownership can be proven;
 - use encrypted provider transport by default;
-- produce share-safe preflight and diagnostic stdout by default;
+- produce share-safe CLI status and reason codes by default;
 - write full diagnostics only to a new private file explicitly requested by the operator.
 
 ## Secret handling
@@ -48,6 +48,6 @@ Include the smallest safe reproduction and omit real deployment identifiers. Do 
 - unsupported UniFi OS versions without a security-boundary impact
 - upstream ISP, JPIX, provider, ONU, or firmware behavior outside this repository
 - availability issues requiring already-authorized root access without crossing another security boundary
-- requests to support independent replacement tunnels that bypass the UniFi-managed-tunnel design
+- requests to support services or mechanisms outside the documented v2 service boundary
 
 Operational failures can still be reported as share-safe regular Issues when they are not vulnerabilities.

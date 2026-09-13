@@ -1,6 +1,0 @@
-#!/bin/sh
-printf 'id %s\n' "$*" >>"$STUB_LOG"
-case ${1:-} in
-  -u) printf '0\n' ;;
-  *) exit 1 ;;
-esac

@@ -7,24 +7,9 @@ ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 for path in README.md LICENSE NOTICE.md SECURITY.md CONTRIBUTING.md .gitignore \
   docs/architecture.md docs/configuration.md docs/installation.md docs/rollback.md \
   docs/service-and-protocols.md docs/troubleshooting.md docs/udm-pro-setup.md docs/validation.md docs/v2.md \
-  config/verified-platforms.conf \
-  config/gateway.conf.example config/routed-networks.conf.example config/provider-update.conf.example \
   config/config-v2.json.example config/credentials-v2.json.example \
-  bin/unifi-jpix scripts/install.sh scripts/install-v2.sh scripts/build-v2-release.sh \
-  scripts/unifi-jpix-bootstrap.sh scripts/unifi-jpix-event-monitor.sh scripts/unifi-jpix-timed-recovery.sh \
-  scripts/unifi-jpix-tunnel-repair-preflight.sh \
-  scripts/unifi-jpix-tunnel-repair-apply.sh \
-  scripts/unifi-jpix-tunnel-repair-diag.sh \
-  scripts/unifi-jpix-tunnel-repair-lib.sh \
-  scripts/unifi-jpix-tunnel-repair-trigger.sh \
-  scripts/unifi-jpix-tunnel-repair-update.sh \
-  scripts/unifi-jpix-tunnel-repair-wait-wan.sh \
-  scripts/unifi-jpix-tunnel-repair-watch.sh \
-  systemd/unifi-jpix-tunnel-repair-apply.service \
-  systemd/unifi-jpix-tunnel-repair-trigger.service \
-  systemd/unifi-jpix-tunnel-repair-update.service \
-  systemd/unifi-jpix-tunnel-repair-update.timer \
-  systemd/unifi-jpix-tunnel-repair-watch.service \
+  bin/unifi-jpix scripts/install-v2.sh scripts/build-v2-release.sh \
+  scripts/unifi-jpix-bootstrap.sh scripts/unifi-jpix-event-monitor.sh \
   systemd-v2/unifi-jpix-bootstrap.service systemd-v2/unifi-jpix-reconcile.service \
   systemd-v2/unifi-jpix-reconcile.timer systemd-v2/unifi-jpix-event-monitor.service \
   src/unifi_jpix/__init__.py src/unifi_jpix/core.py src/unifi_jpix/cli.py src/unifi_jpix/release.py \
@@ -36,24 +21,6 @@ do
   test_start "repository contains $path"
   assert_file_exists "$ROOT/$path"
 done
-
-test_start "main example contains route table"
-assert_contains "$(cat "$ROOT/config/gateway.conf.example" 2>/dev/null || true)" 'ROUTE_TABLE=300'
-test_start 'main example requires an explicit delegated-prefix interface'
-assert_contains "$(cat "$ROOT/config/gateway.conf.example" 2>/dev/null || true)" 'ENDPOINT_IF=replace-with-delegated-prefix-interface'
-
-runbook=$(cat "$ROOT/docs/udm-pro-setup.md" 2>/dev/null || true)
-for required_runbook_text in 'git archive' 'sha256sum' 'scp' '--discover' 'systemd-run' \
-  'unifi-jpix-tunnel-repair-update.sh --force' 'automationを有効化して再起動検証する' \
-  'systemctl enable --now' '旧実装'; do
-  test_start "UDM runbook contains <$required_runbook_text>"
-  assert_contains "$runbook" "$required_runbook_text"
-done
-test_start 'HTTPS is the update example default'
-assert_contains "$(cat "$ROOT/config/provider-update.conf.example")" 'UPDATE_URL=https://'
-
-test_start 'legacy HTTP is disabled in the update example'
-assert_contains "$(cat "$ROOT/config/provider-update.conf.example")" 'ALLOW_INSECURE_UPDATE_HTTP=no'
 
 test_start 'v2 uses a project-owned tunnel'
 assert_contains "$(cat "$ROOT/docs/v2.md")" 'project-owned tunnel'
@@ -94,7 +61,7 @@ test_start 'validation marks connection-test captures as unsafe to share'
 assert_contains "$(cat "$ROOT/docs/validation.md")" '接続判定ページのcopyやscreenshotは共有安全ではありません'
 
 test_start 'public artifacts do not use the legacy v6plus filename namespace'
-if find "$ROOT/config" "$ROOT/scripts" "$ROOT/systemd" -maxdepth 1 -type f \
+if find "$ROOT/config" "$ROOT/scripts" "$ROOT/systemd-v2" -maxdepth 1 -type f \
   \( -name 'v6plus-*' -o -name 'v6plus.env.example' -o -name 'networks.conf.example' -o -name 'update.env.example' \) \
   -print | grep . >/dev/null; then
   fail 'legacy public artifact filename found'
@@ -110,18 +77,19 @@ else
   pass
 fi
 
-test_start 'main config example does not add obsolete ONU management addresses'
-case $(cat "$ROOT/config/gateway.conf.example") in
-  *192.168.1.1*|*192.168.1.2*) fail 'obsolete ONU management address found' ;;
-  *) pass ;;
-esac
-
 test_start 'public documentation contains no complete deployment address literals'
 if find "$ROOT/docs" "$ROOT/.github" -type f -print0 | \
   xargs -0 grep -IlE '(^|[^0-9])(1[0-9]{2}|2[0-4][0-9]|25[0-5])([.][0-9]{1,3}){3}([^0-9]|$)|[0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{0,4}){2,}' >/dev/null || \
   grep -IlE '(^|[^0-9])(1[0-9]{2}|2[0-4][0-9]|25[0-5])([.][0-9]{1,3}){3}([^0-9]|$)|[0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{0,4}){2,}' \
     "$ROOT/README.md" "$ROOT/NOTICE.md" "$ROOT/CONTRIBUTING.md" "$ROOT/SECURITY.md" >/dev/null; then
   fail 'address-like deployment metadata found outside tests and examples'
+else
+  pass
+fi
+test_start 'retired runtime assets are not distributed'
+if find "$ROOT/scripts" "$ROOT/config" -type f \
+  \( -name 'unifi-jpix-tunnel-repair-*' -o -name 'unifi-jpix-timed-recovery.sh' -o -name 'gateway.conf.example' \) -print | grep . >/dev/null; then
+  fail 'retired executable asset found'
 else
   pass
 fi

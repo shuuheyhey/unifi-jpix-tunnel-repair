@@ -1,6 +1,0 @@
-# Provider endpoint update settings
-UPDATE_URL=https://update.example.invalid/path
-UPDATE_USERNAME=example-user
-UPDATE_PASSWORD=example-password
-ALLOW_INSECURE_UPDATE_HTTP=no
-INSECURE_UPDATE_HTTP_HOST=

@@ -1,4 +1,0 @@
-#!/bin/sh
-set -eu
-[ -z "${CHILD_ENV_LOG:-}" ] || { printf '%s\n' '--- awk ---' >>"$CHILD_ENV_LOG"; env >>"$CHILD_ENV_LOG"; }
-exec /usr/bin/awk "$@"

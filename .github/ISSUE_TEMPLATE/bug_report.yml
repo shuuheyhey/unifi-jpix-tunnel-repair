@@ -31,12 +31,12 @@ body:
     id: preflight
     attributes:
       label: Share-safe preflight
-      description: For pre-install problems, paste only output beginning with PREFLIGHT_MODE=share-safe.
+      description: For pre-install problems, summarize v2 discover/check results. Review and remove deployment identifiers before sharing.
   - type: textarea
     id: diagnostics
     attributes:
       label: Share-safe diagnostics
-      description: For configured installations, paste only output beginning with DIAGNOSTIC_MODE=share-safe.
+      description: Summarize v2 status --json, doctor and plan reason codes. Do not attach raw config or state.
   - type: textarea
     id: validation
     attributes:
@@ -49,7 +49,7 @@ body:
       options:
         - label: I removed credentials, addresses, prefixes, MACs, interface names, serials, device IDs, config, state, and full diagnostics.
           required: true
-        - label: I did not treat DHCPV6_PD_ROUTE=absent alone as proof of PD failure on UniFi OS 5.
+        - label: I did not treat absence of an aggregate delegated-prefix route alone as proof of PD failure on UniFi OS 5.
           required: true
         - label: This is not a security vulnerability.
           required: true

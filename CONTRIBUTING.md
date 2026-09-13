@@ -5,11 +5,11 @@ Issue、文書修正、test追加、UniFi OS互換性報告を歓迎します。
 ## Issueを作成する前に
 
 - credential、固定IPv4、完全IPv6、prefix、MAC、serial、device ID、interface名、port、時刻を削除する
-- 導入前は`PREFLIGHT_MODE=share-safe`、config作成後は`DIAGNOSTIC_MODE=share-safe`の出力だけを共有する
+- v2の`discover`、`check`、`plan`、`status --json`、`doctor`の出力を確認し、必要なreason codeと状態だけを共有する
 - config、state、完全診断、provider response、journal全文を貼らない
 - セキュリティ問題は公開Issueではなく[Private Vulnerability Reporting](SECURITY.md)を使用する
 
-UniFi OS 5ではPDが成功していてもaggregate routeを残さず、LAN bridge向けglobal kernel `/64`だけを展開する場合があります。現行preflightは`DHCPV6_PD_ROUTE`と`DHCPV6_PD_LAN64_EVIDENCE`を分けて報告します。PD問題を報告する場合は、実prefixを伏せたうえで、WANのPD設定、DHCPv6 client、IA_PD、両evidenceのpresent/absent、LAN向けglobal `/64`の件数を添えてください。
+UniFi OS 5ではPDが成功していてもaggregate routeを残さず、LAN bridge向けglobal kernel `/64`だけを展開する場合があります。v2では対象LAN bridgeのglobal kernel `/64`が一意であることを検証します。PD問題では実prefixを伏せ、WANのPD設定とbridge上の候補件数を報告してください。
 
 ## 変更の原則
 
@@ -22,7 +22,7 @@ UniFi OS 5ではPDが成功していてもaggregate routeを残さず、LAN brid
 ## ローカル検証
 
 ```sh
-sh -n scripts/*.sh tests/*_test.sh tests/stubs/*/*
+find scripts tests -type f -name '*.sh' -exec sh -n {} \;
 sh tests/run.sh
 git diff --check
 ```

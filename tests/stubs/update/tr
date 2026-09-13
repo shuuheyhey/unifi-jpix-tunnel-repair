@@ -1,4 +1,0 @@
-#!/bin/sh
-set -eu
-[ -z "${CHILD_ENV_LOG:-}" ] || { printf '%s\n' '--- tr ---' >>"$CHILD_ENV_LOG"; env >>"$CHILD_ENV_LOG"; }
-exec /usr/bin/tr "$@"
