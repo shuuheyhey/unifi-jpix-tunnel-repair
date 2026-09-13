@@ -1,11 +1,11 @@
 # unifi-jpix-tunnel-repair
 
-UniFi Dream Machine Pro系で、**JPIX「v6プラス」固定IPサービスの固定IPv4 1個**をproject-owned tunnelへ終端するための非公式・実験的な実装です。v2はPython reconcilerと小さなPOSIX shell boot基盤で構成し、UniFi管理トンネルを変更しません。従来のshell実装はv1移行元として残しています。
+UniFi Dream Machine Pro系で、**JPIX「v6プラス」固定IPサービスの固定IPv4 1個**を終端するための非公式・実験的な実装です。v2はPython reconcilerと小さなPOSIX shell boot基盤で構成します。既定はproject-owned tunnelを使うstandalone方式で、明示移行した単一WANではUniFi管理トンネルを補正する統合方式も利用できます。従来のshell実装はv1移行元として残しています。
 
 > [!WARNING]
 > UDM Pro系はJPIXの公式対応機器ではありません。v2はversion文字列で停止せずcapabilityを確認しますが、実機gateとtimed recoveryなしの有効化は推奨しません。
 
-新規導入とv1移行は[v2 standalone reconciler](docs/v2.md)を正本とします。以下のv1資料は既存導入の保守と移行確認のために残しています。
+新規導入とv1移行は[v2 reconciler](docs/v2.md)を正本とします。以下のv1資料は既存導入の保守と移行確認のために残しています。
 
 ## 対応範囲
 
@@ -18,7 +18,7 @@ UniFi Dream Machine Pro系で、**JPIX「v6プラス」固定IPサービスの�
 | IPv4 over IPv6方式 | 固定IP用BRとのIPIPトンネル。IPv6のNext HeaderはIPv4を示すProtocol 4 |
 | 機器 | UDM Pro、UDM SE、UDM Pro Max（後二者はpreview） |
 | OS・IPv6構成 | versionに依存せず、必要なkernel、route、firewall capabilityを一意に確認 |
-| トンネル所有者 | project専用`jpix0`。UniFi管理トンネルは読み取り専用 |
+| トンネル所有者 | 既定はproject専用`jpix0`。明示移行した単一WANのみUniFi管理トンネルの限定fieldとkernel endpointを補正 |
 
 ### 対応していないもの
 
@@ -32,9 +32,15 @@ IPIPというデータ転送方式が同じでも、JPIX固定IPとHB46PP対応I
 
 ## v2の検証状況
 
+現在の実機releaseは`v2.0.0-dev.21`です。2026-09-14、standalone所有権方針の見直しを明示承認したうえで、単一WANの`unifi-managed`方式へ移行しました。**管理画面の速度測定が成功し、下り4.46 Gbps・上り2.49 Gbps、ISP名と固定IPv4の表示復帰を確認しました。** 実通信はUniFiの論理WANへ統一し、旧`jpix0`と稼働中のroute/rule/firewall参照は残っていません。UDMのIPv4/IPv6 HTTPS、UDP/TCP DNS、7 monitorが正常で、Windows PCのYouTubeとゲーム接続もユーザー確認済みです。単発の速度測定であり性能保証ではありません。
+
+この統合方式はpreviewです。UDAPIの静的IPv6送信元指定が実機で未実装だったため、対応済みのAPI field更新とkernel endpoint補正を組み合わせています。初回失敗時のstandalone復帰を確認し、最終移行は10分の復旧timer付きで実行して通信確認後に確定しました。Pythonテスト73件をローカルとUDMで確認しています。新方式での再起動・WAN切替・Network reprovisionは未実施です。手順と所有権境界は[v2ガイド](docs/v2.md#unifi管理wanへの統合preview)を参照してください。
+
+2026-09-13、UDM Proを`v2.0.0-dev.15`へ更新しました。明示opt-inの単一WAN adapterで、UDM自身の通常IPv4/DNS経路と回線監視を補正します。監視更新後のUniFi user-hook再生成にも再reconcileで対応し、限定した経路rule・monitor/firewall drift試験で自動復元を確認しました。詳細と制約は[v2ガイド](docs/v2.md)を参照してください。
+
 2026-09-07、UDM Proで開発版`v2.0.0-dev.13`への移行とprovider更新が成功しました。IPv4・native IPv6 health check、bootstrap・event monitor・timerの起動、v1 automation停止を確認しました。project-ownedな接続route欠落試験は観測処理全体が6.7秒で完了し、復元後の`healthy`を確認しています。
 
-v2の実再起動、WAN切替・断復帰、Network restart・reprovision、prefix変更、対象LAN/対象外LANの実端末検証は未完了です。24時間shadow観察は省略しています。この開発版はstable公開や全機種・全障害への対応保証ではありません。[検証一覧](docs/validation.md#v2の実機検証範囲)と[現実装の制約](docs/v2.md#現実装の制約と次の検証)を参照してください。
+同日、`dev.15`でUDMを実際に再起動し、Boot ID変更、手動補正なしの自動復旧、IPv4/IPv6、DNSを伴うHTTPS、回線監視を確認しました。Windows PCのYouTube再生とゲーム接続もユーザーが成功を確認しています。WAN切替・断復帰、Network全体のrestart/reprovision、prefix変更、対象外LANの実端末検証は未完了です。24時間shadow観察は省略しています。この開発版はstable公開や全機種・全障害への対応保証ではありません。[検証一覧](docs/validation.md#v2の実機検証範囲)と[現実装の制約](docs/v2.md#現実装の制約と次の検証)を参照してください。
 
 ## v1の検証状況
 
@@ -51,11 +57,11 @@ v2の実再起動、WAN切替・断復帰、Network restart・reprovision、pref
 
 ## v1の設計上の区別
 
-以下の説明は移行前のv1にだけ該当します。v2は独立したproject-owned tunnelを作り、UniFi管理トンネルを変更しません。2方式を同時に有効化しません。
+以下の説明は移行前のv1にだけ該当します。v2は既定で独立したproject-owned tunnelを作ります。v2の`unifi-managed`は別の明示移行方式であり、v1 automationやstandalone tunnelと同時に有効化しません。
 
 ## 主なコンポーネント
 
-v2の主な入口は`unifi-jpix` CLI、`unifi-jpix-bootstrap.service`、event monitor、5分timerです。詳細は[v2ガイド](docs/v2.md)を参照してください。次表はv1互換コンポーネントです。
+v2の主な入口は`unifi-jpix` CLI、`unifi-jpix-bootstrap.service`、event monitor、UDAPI path監視、5分timerです。詳細は[v2ガイド](docs/v2.md)を参照してください。次表はv1互換コンポーネントです。
 
 | コンポーネント | 役割 | ネットワーク変更 |
 | --- | --- | --- |
@@ -99,7 +105,7 @@ UDM上のreview済みsource directoryで実行します。設定・credential作
 ## ドキュメント
 
 - [Architecture](docs/architecture.md)
-- [v2 standalone reconciler](docs/v2.md)
+- [v2 reconciler](docs/v2.md)
 - [UDM Pro setup and migration runbook](docs/udm-pro-setup.md)
 - [Service and protocol guide](docs/service-and-protocols.md)
 - [Configuration](docs/configuration.md)
@@ -113,7 +119,7 @@ UDM上のreview済みsource directoryで実行します。設定・credential作
 
 ## English summary
 
-An unofficial and experimental reconciler for one static IPv4 address on JPIX's v6 Plus static-IP service. v2 owns a dedicated `jpix0` tunnel, discovers the active WAN and delegated endpoint at runtime, isolates ambiguous capabilities, and restores its scoped state after link, route, firewall, or boot drift. UDM Pro is the first verified model; UDM SE and UDM Pro Max remain preview until their hardware gates pass. The legacy UniFi-managed-tunnel shell implementation remains available only as the v1 migration source.
+An unofficial and experimental reconciler for one static IPv4 address on JPIX's v6 Plus static-IP service. v2 defaults to a dedicated `jpix0` tunnel, dynamically discovers the WAN and delegated endpoint, and restores scoped state after drift. An explicitly enrolled single-WAN preview integrates the UniFi-managed tunnel through narrowly scoped UDAPI fields and a kernel endpoint correction; the dashboard speed test and ISP display were verified on one UDM Pro. Native WAN identity, routes and policy remain owned by UniFi. UDM SE and UDM Pro Max remain preview until their hardware gates pass. The legacy shell implementation is retained only as the v1 migration source.
 
 ## License
 

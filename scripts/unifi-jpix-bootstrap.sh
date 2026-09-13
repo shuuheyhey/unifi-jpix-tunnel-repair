@@ -32,7 +32,7 @@ install -d -m 0755 "$BIN_DIR"
 ln -sfn "$CURRENT/bin/unifi-jpix" "$BIN_DIR/unifi-jpix"
 
 "$SYSTEMCTL" daemon-reload
-"$SYSTEMCTL" enable unifi-jpix-reconcile.timer unifi-jpix-event-monitor.service >/dev/null
+"$SYSTEMCTL" enable unifi-jpix-reconcile.timer unifi-jpix-event-monitor.service unifi-jpix-udapi.path >/dev/null
 if ! "$SYSTEMCTL" start unifi-jpix-reconcile.service; then
   [ "${UNIFI_JPIX_ROLLBACK_ATTEMPTED:-0}" = 0 ] || die release-health-failed
   PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=$CURRENT_REAL/src python3 - "$ROOT" <<'PY' || die release-rollback-failed
@@ -51,5 +51,5 @@ import sys
 from unifi_jpix.release import ReleaseManager
 ReleaseManager(Path(sys.argv[1])).mark_verified()
 PY
-"$SYSTEMCTL" start unifi-jpix-reconcile.timer unifi-jpix-event-monitor.service
+"$SYSTEMCTL" start unifi-jpix-reconcile.timer unifi-jpix-event-monitor.service unifi-jpix-udapi.path
 printf '%s\n' 'unifi_jpix_boot status=ready'

@@ -28,6 +28,12 @@
     "credentials_file": "/data/unifi-jpix-tunnel-repair/credentials-v2.json"
   },
   "webhook": {},
+  "router_recovery": {
+    "enabled": false
+  },
+  "integration": {
+    "mode": "standalone"
+  },
   "repair": {
     "interval_seconds": 300
   }

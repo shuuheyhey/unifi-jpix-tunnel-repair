@@ -47,6 +47,67 @@ class ReleaseTests(unittest.TestCase):
             self.manager._safe_extract(archive, destination)
         self.assertFalse((self.root / "escape").exists())
 
+    def test_rollback_rejects_unsupported_router_config_before_switching(self):
+        release = self.root / 'releases/v2.0.0'
+        release.mkdir(parents=True)
+        (release / 'payload').write_text('ok')
+        (release / 'release-manifest.json').write_text(json.dumps({
+            'schema': 1, 'version': 'v2.0.0',
+            'files': {'payload': hashlib.sha256(b'ok').hexdigest()},
+        }))
+        (self.root / 'current').symlink_to('releases/v2.1.0')
+        (self.root / 'previous').symlink_to('releases/v2.0.0')
+        (self.root / 'config-v2.json').write_text('{"router_recovery": {"enabled": true}}')
+        with self.assertRaises(ReleaseError):
+            self.manager.rollback()
+        self.assertEqual((self.root / 'current').readlink(), Path('releases/v2.1.0'))
+
+    def test_rollback_verifies_manifest_before_switching(self):
+        release = self.root / 'releases/v2.0.0'
+        release.mkdir(parents=True)
+        (self.root / 'current').symlink_to('releases/v2.1.0')
+        (self.root / 'previous').symlink_to('releases/v2.0.0')
+        with self.assertRaises(ReleaseError):
+            self.manager.rollback()
+        self.assertEqual((self.root / 'current').readlink(), Path('releases/v2.1.0'))
+
+    def test_rollback_cannot_leave_active_wan_dispatch_unmanaged(self):
+        release = self.root / 'releases/v2.0.0'
+        release.mkdir(parents=True)
+        (release / 'payload').write_text('ok')
+        (release / 'release-manifest.json').write_text(json.dumps({
+            'schema': 1, 'version': 'v2.0.0',
+            'files': {'payload': hashlib.sha256(b'ok').hexdigest()},
+        }))
+        (self.root / 'current').symlink_to('releases/v2.1.0')
+        (self.root / 'previous').symlink_to('releases/v2.0.0')
+        (self.root / 'state-v2').mkdir()
+        (self.root / 'state-v2/runtime.json').write_text('{"wan_policy_integration": true}')
+        with self.assertRaises(ReleaseError):
+            self.manager.rollback()
+        self.assertEqual((self.root / 'current').readlink(), Path('releases/v2.1.0'))
+
+    def test_managed_rollback_requires_compatible_capability_not_just_module(self):
+        release = self.root / 'releases/v2.0.0'
+        adapter = release / 'src/unifi_jpix/managed.py'
+        adapter.parent.mkdir(parents=True)
+        (self.root / 'current').symlink_to('releases/v2.1.0')
+        (self.root / 'previous').symlink_to('releases/v2.0.0')
+        (self.root / 'config-v2.json').write_text('{"integration": {"mode": "unifi-managed"}}')
+        for content in ('# unsupported static selector implementation\n', 'CAPABILITY_VERSION = 1\n', 'CAPABILITY_VERSION = 2\n'):
+            with self.subTest(content=content):
+                adapter.write_text(content)
+                (release / 'release-manifest.json').write_text(json.dumps({
+                    'schema': 1, 'version': 'v2.0.0',
+                    'files': {'src/unifi_jpix/managed.py': hashlib.sha256(content.encode()).hexdigest()},
+                }))
+                if content == 'CAPABILITY_VERSION = 2\n':
+                    self.assertEqual(self.manager.rollback()['status'], 'selected')
+                else:
+                    with self.assertRaises(ReleaseError):
+                        self.manager.rollback()
+                    self.assertEqual((self.root / 'current').readlink(), Path('releases/v2.1.0'))
+
     @unittest.skipUnless(shutil.which("openssl"), "openssl is required")
     def test_detached_checksum_signature(self):
         private = self.root / "private.pem"

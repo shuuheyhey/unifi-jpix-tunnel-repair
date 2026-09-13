@@ -12,7 +12,8 @@ if [ -f "$MARKER" ]; then
 fi
 
 "$SYSTEMCTL" disable --now unifi-jpix-bootstrap.service \
-  unifi-jpix-reconcile.timer unifi-jpix-event-monitor.service >/dev/null 2>&1 || :
+  unifi-jpix-reconcile.timer unifi-jpix-event-monitor.service \
+  unifi-jpix-udapi.path unifi-jpix-udapi-reconcile.service >/dev/null 2>&1 || :
 
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=$ROOT/current/src python3 - "$ROOT" <<'PY'
 from pathlib import Path

@@ -91,6 +91,29 @@ class ReleaseManager:
         target = self.root / previous
         if not target.is_dir():
             raise ReleaseError("rollback release is unavailable")
+        self.verify_installed(target)
+        configuration = self.root / 'config-v2.json'
+        if configuration.is_file():
+            try:
+                configured = json.loads(configuration.read_text(encoding='utf-8'))
+            except (OSError, ValueError) as exc:
+                raise ReleaseError('rollback configuration is unavailable') from exc
+            if 'router_recovery' in configured and not (target / 'src/unifi_jpix/router.py').is_file():
+                raise ReleaseError('rollback release does not support router recovery configuration')
+            if configured.get('integration', {}).get('mode') == 'unifi-managed':
+                adapter = target / 'src/unifi_jpix/managed.py'
+                if not adapter.is_file() or 'CAPABILITY_VERSION = 2' not in adapter.read_text():
+                    raise ReleaseError('rollback release does not support the active managed-WAN capability')
+        runtime_path = self.root / 'state-v2/runtime.json'
+        if runtime_path.is_file():
+            try:
+                runtime = json.loads(runtime_path.read_text(encoding='utf-8'))
+            except (OSError, ValueError) as exc:
+                raise ReleaseError('rollback runtime is unavailable') from exc
+            if runtime.get('wan_policy_integration') and not (target / 'src/unifi_jpix/wan_policy.py').is_file():
+                raise ReleaseError('rollback release does not support active WAN policy integration')
+            if runtime.get('wan_policy_integration', 0) >= 2 and 'CAPABILITY_VERSION = 2' not in (target / 'src/unifi_jpix/wan_policy.py').read_text():
+                raise ReleaseError('rollback release does not support active WAN DNS isolation')
         self._atomic_link("current", previous)
         return {"status": "selected", "release": Path(previous).name}
 

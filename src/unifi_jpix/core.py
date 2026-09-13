@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import fcntl
 import hashlib
 import ipaddress
@@ -15,7 +15,7 @@ import signal
 import subprocess
 import tempfile
 import time
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 from urllib.parse import urlparse
 
 
@@ -82,6 +82,8 @@ class Config:
     credentials_file: Path | None
     webhook_url: str | None
     reconcile_interval_seconds: int
+    router_recovery_enabled: bool = False
+    wan_integration: str = 'standalone'
 
     @classmethod
     def load(cls, path: Path) -> "Config":
@@ -95,7 +97,7 @@ class Config:
         allowed = {
             "schema_version", "service", "static_ipv4", "br_ipv6", "iid",
             "endpoint_network", "routed_networks", "tunnel", "resources",
-            "firewall", "provider", "webhook", "repair",
+            "firewall", "provider", "webhook", "repair", "router_recovery", "integration",
         }
         _reject_unknown(raw, allowed, "configuration")
         if raw.get("schema_version") != 2:
@@ -210,12 +212,22 @@ class Config:
         interval = _integer(repair.get("interval_seconds", 300), "repair.interval_seconds", 60, 3600)
         if interval != 300:
             raise ConfigError("repair.interval_seconds must be 300 in schema version 2")
+        router = _object(raw.get("router_recovery", {}), "router_recovery")
+        _reject_unknown(router, {"enabled"}, "router_recovery")
+        router_enabled = router.get("enabled", False)
+        if not isinstance(router_enabled, bool):
+            raise ConfigError("router_recovery.enabled must be boolean")
+        integration = _object(raw.get('integration', {}), 'integration')
+        _reject_unknown(integration, {'mode'}, 'integration')
+        mode = integration.get('mode', 'standalone')
+        if mode not in {'standalone', 'unifi-managed'} or (mode == 'unifi-managed' and not router_enabled):
+            raise ConfigError('integration.mode is unsupported')
         return cls(
             2, raw["service"], str(static_v4), str(br_v6), iid,
             endpoint_interface, endpoint_cidr, tuple(networks), tunnel_name,
             mtu, mss, route_table, priority, outer, provider_url,
             allow_insecure, insecure_host,
-            credentials_file, webhook_url, interval,
+            credentials_file, webhook_url, interval, router_enabled, mode,
         )
 
 
@@ -260,12 +272,18 @@ class Action:
     reason: str
     command: tuple[str, ...]
     inverse: tuple[str, ...] | None = None
+    apply_callback: Callable[[], None] | None = field(default=None, repr=False, compare=False)
+    undo_callback: Callable[[], None] | None = field(default=None, repr=False, compare=False)
 
     def share_safe(self) -> dict[str, str]:
         return {"reason": self.reason, "operation": self.command[0]}
 
 
 class Runner:
+    def input_json(self, command: Sequence[str], payload: dict[str, Any]) -> subprocess.CompletedProcess[str]:
+        # UDAPI services can contain secrets. Never put their JSON in argv or logs.
+        return subprocess.run(command, input=json.dumps(payload), text=True, capture_output=True, check=False)
+
     def run(self, command: Sequence[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
         result = subprocess.run(command, text=True, capture_output=True, check=False)
         if check and result.returncode != 0:
@@ -446,6 +464,7 @@ class Reconciler:
         self.runner = runner or Runner()
         self.probe = Probe(self.runner)
         self.state = StateStore(root)
+        self.router = None
 
     def discover(self) -> Capabilities:
         return self.probe.discover(self.config)
@@ -499,6 +518,15 @@ class Reconciler:
         resources = self.allocate_resources()
         actions: list[Action] = []
         cfg = self.config
+        self.router = None
+        if cfg.router_recovery_enabled:
+            from .router import RouterRecovery
+            self.router = RouterRecovery(cfg, self.runner, resources, self.state)
+            router_actions = self.router.plan()
+        else:
+            if (self.state.state_dir / "router-recovery.json").exists():
+                raise ForeignConflict("disable router recovery only after deactivation")
+            router_actions = []
         local = capabilities.local_endpoint
 
         if not self._address_exists(capabilities.wan_interface, f"{local}/128", 6):
@@ -539,6 +567,7 @@ class Reconciler:
         actions.extend(self._route_rule_actions(resources))
         actions.extend(self._firewall_actions(capabilities))
         actions.extend(self._endpoint_cleanup_actions(capabilities))
+        actions.extend(router_actions)
         return capabilities, resources, actions
 
     def _tunnel_address_actions(self, tunnel_created: bool) -> list[Action]:
@@ -633,6 +662,15 @@ class Reconciler:
         cfg = self.config
         actions: list[Action] = []
         expected: dict[tuple[str, tuple[str, ...], str], list[tuple[str, ...]]] = {}
+        if self.router and cfg.wan_integration == 'standalone':
+            from .wan_policy import DNS_CHAIN, validate
+            for chain, rule in validate(self.runner, self.router.identity['interface'], cfg.tunnel_name):
+                expected.setdefault(("iptables", (), chain), []).append(rule)
+                actions.extend(self._ensure_xtables("iptables", (), chain, rule, "wan-policy-dispatch-missing", insert_first=chain == DNS_CHAIN))
+        if self.router:
+            rule = self.router.dns_snat_rule()
+            expected.setdefault(("iptables", ("-t", "nat"), capabilities.nat_chain), []).append(rule)
+            actions.extend(self._ensure_xtables("iptables", ("-t", "nat"), capabilities.nat_chain, rule, "router-dns-snat-missing"))
         for network in cfg.routed_networks:
             rule = ("-s", network.ipv4_cidr, "-o", cfg.tunnel_name, "-m", "comment", "--comment", FIREWALL_TAG, "-j", "SNAT", "--to-source", cfg.static_ipv4)
             expected.setdefault(("iptables", ("-t", "nat"), capabilities.nat_chain), []).append(rule)
@@ -644,7 +682,7 @@ class Reconciler:
         if cfg.outer_ipip_allow:
             rule = ("-s", f"{cfg.br_ipv6}/128", "-d", f"{capabilities.local_endpoint}/128", "-p", "4", "-m", "comment", "--comment", FIREWALL_TAG, "-j", "ACCEPT")
             expected.setdefault(("ip6tables", (), capabilities.v6_input_chain), []).append(rule)
-            actions.extend(self._ensure_xtables("ip6tables", (), capabilities.v6_input_chain, rule, "outer-rule-missing"))
+            actions.extend(self._ensure_xtables("ip6tables", (), capabilities.v6_input_chain, rule, "outer-rule-missing", insert_first=cfg.wan_integration == 'unifi-managed'))
         allowed_obsolete: set[tuple[str, tuple[str, ...], str, tuple[str, ...]]] = set()
         runtime = self.state.read(self.state.runtime_path)
         old_local = runtime.get("local_endpoint") if runtime else None
@@ -730,18 +768,20 @@ class Reconciler:
             for index, count in enumerate(counts):
                 for _ in range(max(0, count - 1)):
                     rule = expected_rules[index]
+                    restore = ("-I", chain, "1") if binary == 'iptables' and not prefix and chain == 'UBIOS_DNS_PBR_JUMP' else ("-A", chain)
                     actions.append(Action(
                         "duplicate-firewall-rule",
                         tuple(_xtables_command(binary, *prefix, "-D", chain, *rule)),
-                        tuple(_xtables_command(binary, *prefix, "-A", chain, *rule)),
+                        tuple(_xtables_command(binary, *prefix, *restore, *rule)),
                     ))
         return actions
 
-    def _ensure_xtables(self, binary: str, prefix: tuple[str, ...], chain: str, rule: tuple[str, ...], reason: str) -> list[Action]:
+    def _ensure_xtables(self, binary: str, prefix: tuple[str, ...], chain: str, rule: tuple[str, ...], reason: str, *, insert_first: bool = False) -> list[Action]:
         checked = self.runner.run(_xtables_command(binary, *prefix, "-C", chain, *rule), check=False)
         if checked.returncode == 0:
             return []
-        return [Action(reason, tuple(_xtables_command(binary, *prefix, "-A", chain, *rule)), tuple(_xtables_command(binary, *prefix, "-D", chain, *rule)))]
+        insertion = ("-I", chain, "1") if insert_first else ("-A", chain)
+        return [Action(reason, tuple(_xtables_command(binary, *prefix, *insertion, *rule)), tuple(_xtables_command(binary, *prefix, "-D", chain, *rule)))]
 
     def reconcile(self) -> dict[str, Any]:
         try:
@@ -758,7 +798,7 @@ class Reconciler:
                 self.state.quarantine(reason)
                 self._notify_webhook(reason, "quarantined")
                 raise
-            inverses: list[tuple[str, ...]] = []
+            inverses: list[Action] = []
             self.state.begin_transaction(actions)
             previous_handlers: dict[int, Any] = {}
             def interrupted(_signum, _frame):
@@ -768,10 +808,29 @@ class Reconciler:
                 signal.signal(signum, interrupted)
             try:
                 for completed, action in enumerate(actions, start=1):
-                    if action.inverse:
-                        inverses.append(action.inverse)
-                    self.runner.run(action.command)
+                    if action.inverse or action.undo_callback:
+                        inverses.append(action)
+                    if action.apply_callback:
+                        action.apply_callback()
+                    else:
+                        self.runner.run(action.command)
                     self.state.transaction_progress(completed)
+                if any(action.reason in {'wan-monitor-binding-drift', 'managed-wan-config-drift'} for action in actions):
+                    # UDAPI returns before rebuilding user-hook chains. Wait for
+                    # that rebuild, then repair only our own missing resources.
+                    time.sleep(10)
+                    capabilities, resources, settled = self.plan()
+                    if any(action.apply_callback for action in settled):
+                        raise MutationError('monitor-configuration-unstable')
+                    journal = self.state.read(self.state.journal_path) or {}
+                    journal['actions'] = [action.reason for action in [*actions, *settled]]
+                    self.state.write(self.state.journal_path, journal)
+                    for action in settled:
+                        if action.inverse:
+                            inverses.append(action)
+                        self.runner.run(action.command)
+                        actions.append(action)
+                        self.state.transaction_progress(len(actions))
                 runtime = self._runtime(capabilities, resources)
                 self._health_check(capabilities, resources)
                 if old_runtime:
@@ -803,7 +862,12 @@ class Reconciler:
             except Exception as exc:
                 rollback_failed = False
                 for inverse in reversed(inverses):
-                    if self.runner.run(inverse, check=False).returncode != 0:
+                    try:
+                        if inverse.undo_callback:
+                            inverse.undo_callback()
+                        elif inverse.inverse:
+                            self.runner.run(inverse.inverse)
+                    except Exception:
                         rollback_failed = True
                 reason = "rollback-failed" if rollback_failed else _reason_code(exc)
                 self.state.finish_transaction(reason)
@@ -831,6 +895,13 @@ class Reconciler:
                     break
             else:
                 raise MutationError(failure)
+        if self.router:
+            self.router.health_check()
+        if self.router and self.config.wan_integration == 'standalone':
+            from .wan_policy import validate
+            for chain, rule in validate(self.runner, self.router.identity['interface'], self.config.tunnel_name):
+                if self.runner.run(_xtables_command('iptables', '-C', chain, *rule), check=False).returncode:
+                    raise MutationError('wan-policy-health-failed')
 
     def _notify_provider(self, local_endpoint: str) -> str:
         if not self.config.provider_url:
@@ -935,6 +1006,8 @@ class Reconciler:
             "static_ipv4": self.config.static_ipv4,
             "nat_chain": capabilities.nat_chain,
             "v6_input_chain": capabilities.v6_input_chain,
+            "wan_policy_integration": 2 if self.config.router_recovery_enabled and self.config.wan_integration == 'standalone' else 0,
+            "integration_mode": self.config.wan_integration,
         }
 
     def deactivate(self) -> None:
@@ -958,6 +1031,14 @@ class Reconciler:
             local = str(runtime["local_endpoint"])
             wan = _interface(runtime["wan_interface"], "runtime WAN")
             failures = 0
+
+            if self.config.router_recovery_enabled:
+                from .router import RouterRecovery
+                router = RouterRecovery(self.config, self.runner, Resources(int(table), priority), self.state)
+                router.deactivate()
+                failures += self._delete_all_xtables("iptables", ("-t", "nat"), str(runtime["nat_chain"]), router.dns_snat_rule())
+            elif (self.state.state_dir / "router-recovery.json").exists():
+                raise ForeignConflict("router recovery must remain enabled during deactivation")
 
             for network in self.config.routed_networks:
                 rule = ("-s", network.ipv4_cidr, "-o", self.config.tunnel_name, "-m", "comment", "--comment", FIREWALL_TAG, "-j", "SNAT", "--to-source", self.config.static_ipv4)
@@ -983,12 +1064,18 @@ class Reconciler:
                 failures += 1
             if self.runner.run(["ip", "-6", "tunnel", "del", self.config.tunnel_name], check=False).returncode != 0:
                 failures += 1
+            else:
+                # Keep WAN filtering in place until the data-plane device is gone.
+                from .wan_policy import rules as wan_policy_rules
+                for chain, rule in wan_policy_rules(self.config.tunnel_name):
+                    failures += self._delete_all_xtables('iptables', (), chain, rule)
             if self.runner.run(["ip", "-6", "address", "del", f"{local}/128", "dev", wan], check=False).returncode not in {0, 2}:
                 failures += 1
             if failures:
                 self.state.quarantine("deactivation-failed")
                 raise MutationError("deactivation-failed")
             self.state.runtime_path.unlink(missing_ok=True)
+            (self.state.state_dir / "router-recovery.json").unlink(missing_ok=True)
             self.state.notification_path.unlink(missing_ok=True)
             self.state.write(self.state.health_path, {"schema": 1, "status": "inactive", "at": int(time.time())})
             self.state.clear_quarantine()
@@ -1040,6 +1127,8 @@ def config_digest(config: Config) -> str:
         "endpoint_ipv4_cidr": config.endpoint_ipv4_cidr,
         "routed_networks": [network.__dict__ for network in config.routed_networks],
         "tunnel": [config.tunnel_name, config.tunnel_mtu, config.tcp_mss],
+        "router_recovery": config.router_recovery_enabled,
+        "integration_mode": config.wan_integration,
     }
     return hashlib.sha256(json.dumps(safe, sort_keys=True).encode()).hexdigest()
 
@@ -1084,7 +1173,7 @@ def _xtables_equivalent(actual: Sequence[str], expected: Sequence[str]) -> bool:
         result: list[str] = []
         index = 0
         while index < len(tokens):
-            if tokens[index] == "-m" and index + 1 < len(tokens) and tokens[index + 1] in {"comment", "tcp"}:
+            if tokens[index] == "-m" and index + 1 < len(tokens) and tokens[index + 1] in {"comment", "tcp", "udp"}:
                 index += 2
                 continue
             token = "-p" if tokens[index] == "--protocol" else tokens[index]

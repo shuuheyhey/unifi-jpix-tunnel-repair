@@ -1,6 +1,8 @@
 #!/bin/sh
 set -eu
-SELF=$(CDPATH= cd -- "$(dirname "$0")" && pwd -P)
+# The boot installer exposes this launcher through /usr/local/bin and current.
+# Resolve both symlinks before locating the release's Python package.
+SELF=$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve().parent)' "$0")
 if [ -d "$SELF/../src/unifi_jpix" ]; then
   PYTHONPATH=$SELF/../src${PYTHONPATH:+:$PYTHONPATH}
 elif [ -d "$SELF/../lib/unifi_jpix" ]; then

@@ -32,6 +32,11 @@ def parser() -> argparse.ArgumentParser:
     status.add_argument("--json", action="store_true")
     commands.add_parser("doctor")
     commands.add_parser("rollback")
+    integrate = commands.add_parser('integrate-wan')
+    mode = integrate.add_mutually_exclusive_group(required=True)
+    mode.add_argument('--activate', action='store_true')
+    mode.add_argument('--recover', action='store_true')
+    mode.add_argument('--confirm', action='store_true')
     upgrade = commands.add_parser("upgrade")
     upgrade.add_argument("--release", required=True)
     migrate = commands.add_parser("migrate-v1")
@@ -45,6 +50,13 @@ def _config_path(args: argparse.Namespace) -> Path:
 
 def _load(args: argparse.Namespace) -> Config:
     return Config.load(_config_path(args))
+
+
+def _reconciler(config: Config, root: Path):
+    if config.wan_integration == 'unifi-managed':
+        from .managed import ManagedReconciler
+        return ManagedReconciler(config, root)
+    return Reconciler(config, root)
 
 
 def _generic_discover(runner: Runner) -> dict[str, Any]:
@@ -84,12 +96,13 @@ def _generic_discover(runner: Runner) -> dict[str, Any]:
 
 def _doctor(args: argparse.Namespace) -> dict[str, Any]:
     config_path = _config_path(args)
-    reconciler = Reconciler(Config.load(config_path), args.root) if config_path.is_file() else None
+    reconciler = _reconciler(Config.load(config_path), args.root) if config_path.is_file() else None
     status = reconciler.status() if reconciler else {"status": "unconfigured", "reason": "config-missing"}
     checks: dict[str, str] = {}
     for unit in (
         "unifi-jpix-bootstrap.service", "unifi-jpix-reconcile.timer",
         "unifi-jpix-event-monitor.service",
+        "unifi-jpix-udapi.path",
     ):
         installed = Path("/etc/systemd/system") / unit
         checks[f"unit_{unit}"] = "present" if installed.is_file() else "missing"
@@ -218,6 +231,8 @@ def _migrate_v1(args: argparse.Namespace) -> dict[str, Any]:
             "systemctl", "disable", "--now",
             "unifi-jpix-bootstrap.service", "unifi-jpix-reconcile.timer",
             "unifi-jpix-event-monitor.service",
+            "unifi-jpix-udapi.path",
+            "unifi-jpix-udapi-reconcile.service",
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
         try:
             reconciler.deactivate()
@@ -269,7 +284,11 @@ def _print_result(args: argparse.Namespace, result: dict[str, Any]) -> None:
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
-        if args.command == "discover" and not _config_path(args).is_file():
+        if args.command == 'integrate-wan':
+            from .integration import activate, confirm, recover
+            operation = activate if args.activate else recover if args.recover else confirm
+            result = operation(args.root)
+        elif args.command == "discover" and not _config_path(args).is_file():
             result = _generic_discover(Runner())
         elif args.command == "migrate-v1":
             result = _migrate_v1(args)
@@ -280,11 +299,12 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "doctor":
             result = _doctor(args)
         else:
-            reconciler = Reconciler(_load(args), args.root)
+            reconciler = _reconciler(_load(args), args.root)
             if args.command == "discover":
                 result = reconciler.discover().share_safe()
             elif args.command == "check":
-                result = {"status": "ready", "capabilities": reconciler.discover().share_safe()}
+                capabilities, _, _ = reconciler.plan()
+                result = {"status": "ready", "capabilities": capabilities.share_safe()}
             elif args.command == "plan":
                 capabilities, resources, actions = reconciler.plan()
                 result = {"status": "ready", "capabilities": capabilities.share_safe(), "resources": resources.__dict__, "actions": [action.share_safe() for action in actions]}

@@ -1,0 +1,9 @@
+[Unit]
+Description=Reconcile JPIX after UniFi regenerates its gateway configuration
+
+[Path]
+PathChanged=/data/udapi-config/ubios-udapi-server/ubios-udapi-server.state
+Unit=unifi-jpix-udapi-reconcile.service
+
+[Install]
+WantedBy=multi-user.target
