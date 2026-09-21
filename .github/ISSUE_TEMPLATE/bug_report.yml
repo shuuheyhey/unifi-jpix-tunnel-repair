@@ -5,12 +5,12 @@ labels: [bug]
 body:
   - type: markdown
     attributes:
-      value: Do not include credentials, complete addresses, prefixes, interface names, device identifiers, config, state, full diagnostics, or raw logs. Use share-safe output only.
+      value: Do not include credentials, complete addresses, prefixes, interface names, device identifiers, config, state, full diagnostics, or raw logs. Summarize status and reason codes only. Discovery without a config includes real interface names and firmware metadata; review it before sharing.
   - type: textarea
     id: summary
     attributes:
       label: Summary
-      description: What happened, and what did you expect?
+      description: What happened, and what did you expect? Distinguish client connectivity, router connectivity, DNS/content filtering, and dashboard-only symptoms.
     validations:
       required: true
   - type: input
@@ -21,22 +21,29 @@ body:
     validations:
       required: true
   - type: textarea
-    id: steps
+    id: deployment
     attributes:
-      label: Reproduction
-      description: Use synthetic values and list the smallest safe reproduction.
+      label: Deployment and mode
+      description: State the release selected by current, source install or signed upgrade, and standalone or unifi-managed mode. The package --version alone does not identify a development deployment. Do not paste config or state.
     validations:
       required: true
   - type: textarea
-    id: preflight
+    id: steps
     attributes:
-      label: Share-safe preflight
-      description: For pre-install problems, summarize v2 discover/check results. Review and remove deployment identifiers before sharing.
+      label: Reproduction
+      description: Use synthetic values and list the smallest safe reproduction. Note whether a UniFi settings save, restart, WAN change, or tool update preceded the problem. Do not trigger a disruptive test just to complete this report.
+    validations:
+      required: true
+  - type: textarea
+    id: discovery
+    attributes:
+      label: Discovery and capability checks
+      description: For pre-install problems, summarize discover/check results. Review and remove deployment identifiers before sharing.
   - type: textarea
     id: diagnostics
     attributes:
       label: Share-safe diagnostics
-      description: Summarize v2 status --json, doctor and plan reason codes. Do not attach raw config or state.
+      description: Summarize status --json, doctor and plan reason codes, active monitor units, and provider pending state. Healthy does not run a fresh connectivity probe; doctor ready does not check active units. Do not attach raw config or state.
   - type: textarea
     id: validation
     attributes:

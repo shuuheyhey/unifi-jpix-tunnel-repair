@@ -6,15 +6,17 @@ ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 
 for path in README.md LICENSE NOTICE.md SECURITY.md CONTRIBUTING.md .gitignore \
   docs/architecture.md docs/configuration.md docs/installation.md docs/rollback.md \
-  docs/service-and-protocols.md docs/troubleshooting.md docs/udm-pro-setup.md docs/validation.md docs/v2.md \
+  docs/service-and-protocols.md docs/troubleshooting.md docs/udm-pro-setup.md docs/validation.md docs/guide.md \
   config/config-v2.json.example config/credentials-v2.json.example \
   bin/unifi-jpix scripts/install-v2.sh scripts/build-v2-release.sh \
   scripts/unifi-jpix-bootstrap.sh scripts/unifi-jpix-event-monitor.sh \
   systemd-v2/unifi-jpix-bootstrap.service systemd-v2/unifi-jpix-reconcile.service \
   systemd-v2/unifi-jpix-reconcile.timer systemd-v2/unifi-jpix-event-monitor.service \
+  systemd-v2/unifi-jpix-udapi-reconcile.service systemd-v2/unifi-jpix-udapi.path \
   src/unifi_jpix/__init__.py src/unifi_jpix/core.py src/unifi_jpix/cli.py src/unifi_jpix/release.py \
   tests/event_monitor_v2_test.sh tests/install_v2_test.sh \
   tests_v2/test_cli.py tests_v2/test_core.py tests_v2/test_release.py \
+  tests_v2/test_repository.py \
   .github/pull_request_template.md \
   .github/ISSUE_TEMPLATE/bug_report.yml .github/ISSUE_TEMPLATE/config.yml
 do
@@ -23,7 +25,7 @@ do
 done
 
 test_start 'v2 uses a project-owned tunnel'
-assert_contains "$(cat "$ROOT/docs/v2.md")" 'project-owned tunnel'
+assert_contains "$(cat "$ROOT/docs/guide.md")" 'project-owned tunnel'
 
 test_start 'event monitor does not create a bootstrap start cycle'
 if grep -Eq '^After=.*unifi-jpix-bootstrap\.service' "$ROOT/systemd-v2/unifi-jpix-event-monitor.service"; then
@@ -60,15 +62,6 @@ assert_contains "$(cat "$ROOT/docs/service-and-protocols.md")" '表示portは「
 test_start 'validation marks connection-test captures as unsafe to share'
 assert_contains "$(cat "$ROOT/docs/validation.md")" '接続判定ページのcopyやscreenshotは共有安全ではありません'
 
-test_start 'public artifacts do not use the legacy v6plus filename namespace'
-if find "$ROOT/config" "$ROOT/scripts" "$ROOT/systemd-v2" -maxdepth 1 -type f \
-  \( -name 'v6plus-*' -o -name 'v6plus.env.example' -o -name 'networks.conf.example' -o -name 'update.env.example' \) \
-  -print | grep . >/dev/null; then
-  fail 'legacy public artifact filename found'
-else
-  pass
-fi
-
 test_start 'tracked public tree excludes internal plans and checkpoints'
 if find "$ROOT" -path "$ROOT/.git" -prune -o \
   \( -path '*/docs/superpowers/*' -o -name 'checkpoint-*' -o -name '*live-validation*' \) -print | grep . >/dev/null; then
@@ -83,13 +76,6 @@ if find "$ROOT/docs" "$ROOT/.github" -type f -print0 | \
   grep -IlE '(^|[^0-9])(1[0-9]{2}|2[0-4][0-9]|25[0-5])([.][0-9]{1,3}){3}([^0-9]|$)|[0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{0,4}){2,}' \
     "$ROOT/README.md" "$ROOT/NOTICE.md" "$ROOT/CONTRIBUTING.md" "$ROOT/SECURITY.md" >/dev/null; then
   fail 'address-like deployment metadata found outside tests and examples'
-else
-  pass
-fi
-test_start 'retired runtime assets are not distributed'
-if find "$ROOT/scripts" "$ROOT/config" -type f \
-  \( -name 'unifi-jpix-tunnel-repair-*' -o -name 'unifi-jpix-timed-recovery.sh' -o -name 'gateway.conf.example' \) -print | grep . >/dev/null; then
-  fail 'retired executable asset found'
 else
   pass
 fi
