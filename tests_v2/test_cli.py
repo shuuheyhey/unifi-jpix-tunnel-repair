@@ -11,14 +11,20 @@ from unifi_jpix.cli import main, parser, _rollback
 
 
 class CliTests(unittest.TestCase):
-    def test_retired_migration_is_rejected_before_any_operation(self):
+    def test_unknown_command_is_rejected_before_any_operation(self):
         with mock.patch("unifi_jpix.cli.subprocess.run") as run, contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit) as raised:
-                main(["migrate-v1", "--activate"])
+                main(["unsupported-command", "--activate"])
         self.assertEqual(raised.exception.code, 2)
         run.assert_not_called()
 
     def test_supported_commands_remain_available(self):
+        commands = next(action for action in parser()._actions
+                        if isinstance(action, argparse._SubParsersAction)).choices
+        self.assertEqual(set(commands), {
+            "discover", "check", "plan", "reconcile", "status", "doctor",
+            "rollback", "upgrade", "integrate-wan",
+        })
         for arguments in (
             ["discover"], ["check"], ["plan"], ["reconcile", "--retry"],
             ["status", "--json"], ["doctor"], ["rollback"],

@@ -1,6 +1,6 @@
-# v2 reconciler
+# 運用ガイド
 
-v2は既定の`standalone`と明示移行の`unifi-managed`を分離します。前者はUniFi管理トンネルを変更せず、project-owned tunnelである`jpix0`をdesired stateへ収束させます。後者はUniFi管理WANの限定fieldとkernel endpointを補正し、管理画面の速度測定・監視と実通信を同じ論理WANへ統合します。どちらも物理WAN名を入力させず、BR宛てのIPv6 route、link状態、LAN bridgeのdelegated prefixを実行ごとに検出します。
+本ツールは既定の`standalone`と明示移行の`unifi-managed`を分離します。前者はUniFi管理トンネルを変更せず、project-owned tunnelである`jpix0`をdesired stateへ収束させます。後者はUniFi管理WANの限定fieldとkernel endpointを補正し、管理画面の速度測定・監視と実通信を同じ論理WANへ統合します。どちらも物理WAN名を入力させず、BR宛てのIPv6 route、link状態、LAN bridgeのdelegated prefixを実行ごとに検出します。
 
 ## 対応境界
 
@@ -13,19 +13,9 @@ v2は既定の`standalone`と明示移行の`unifi-managed`を分離します。
 
 ## 検証状況
 
-現在の実機は`v2.0.0-dev.23`、`integration.mode=unifi-managed`です。v1の実装・移行入口を撤去した新版を配置し、旧v1の24ファイルを削除しました。通信と保護対象の内容一致を確認し、dev.22を復旧先として保持しています。[廃止記録](v1-retirement.md)を参照してください。
+UDM Proで通信・限定drift・standalone再起動・管理WAN統合を確認しています。各試験のreleaseとmode、確認済みの範囲は[Validation](validation.md)を参照してください。managed modeでの再起動、WAN物理切替・断復帰、Network全体のrestart、prefix更新、対象外LANの実端末通信は未検証です。
 
-以下はdev.22までの履歴です。2026-09-14の統合時には管理画面の速度測定が下り4.46 Gbps・上り2.49 Gbpsで成功し、ISP名と固定IPv4表示も復帰しました。Windows PCでのYouTube再生とゲーム接続は統合後にユーザー確認済みです。`dev.22`は設定再適用時の待機を短縮し、endpointを先に補正してから遅延firewall再生成へ追従します。Pythonテスト79件はローカル・UDMの両方で成功し、配置後のIPv4/IPv6 HTTPS、WAN専用・フィルター経由DNS、pending repairs 0を確認しました。利用者の設定保存1回ではWAN down判定は出ず、設定再適用開始から約7秒後にIPv4 probeが復帰しました。ただし短い通信失敗は残り、無停止・再発防止の一般的な保証ではありません。新方式での再起動・物理WAN切替は未実施です。
-
-過去のstandalone `dev.18`では、WAN IN/OUT/LOCALへの3 dispatchと内部DNS分岐の先頭RETURNを維持し、通常通信は成功しました。しかし管理画面が管理トンネルを毎回bindし直すため速度測定は失敗しました。この差異が明示統合方式を追加した理由です。単に`source-interface`ファイルを書き換えても解決しませんでした。
-
-2026-09-13、UDM Proを`v2.0.0-dev.15`へ更新し、単一WAN向け`router_recovery`を有効化しました。通常のUDM IPv4通信、DNSを伴うHTTPS、native IPv6、7 monitorのavailability 100%を確認しました。経路ruleの自動復元は`dev.14`で約6秒、監視bind変更とそれに伴うuser-hook再生成後の自動復元は`dev.15`で36.2秒（12秒の安定確認を含む）でした。後者では対象外services設定・firewall ruleを前後比較し、一致を確認しました。限定したdrift注入試験であり、Network全体のreprovision試験ではありません。
-
-2026-09-07、開発版`v2.0.0-dev.13`でUDM Proのv1移行、IPv4・native IPv6 health check、provider更新、bootstrap・event monitor・timerの起動を確認しました。接続routeを1本欠落させる試験では、観測処理全体が6.7秒で完了し、route復元と`healthy`を確認しています。厳密な障害発生からの収束時間測定や全種類のdrift試験ではありません。
-
-2026-09-13の`dev.15`実再起動ではBoot ID変更を確認し、手動補正なしで19件の状態補正が自動実行されました。その後の3回のreconcileは追加修復0件で、今回bootのCLI失敗記録はありませんでした。起動用4 unit、通常IPv4/native IPv6、DNSを伴うHTTPS、WAN health goodと7 monitorのavailability 100%を確認し、Windows PCのYouTube再生・ゲーム接続もユーザー確認済みです。
-
-24時間shadow観察は省略しました。WAN物理切替・断復帰、Network全体のrestart/reprovision、prefix更新、対象外LANの実端末通信、PMTUD・大きなUDP・VPNは未検証です。`model_status=verified`とreleaseの`verified`は、これらすべての試験合格やstable公開を意味しません。詳細は[Validation](validation.md#v2の実機検証範囲)を参照してください。
+`model_status=verified` やreleaseの `verified` は、全障害からの復旧・将来互換・stable公開を保証しません。設定保存時には短い通信断が観測されています。
 
 ## 永続レイアウト
 
@@ -53,7 +43,7 @@ sudo /data/unifi-jpix-tunnel-repair/current/bin/unifi-jpix plan
 sudo ./scripts/install-v2.sh --activate
 ```
 
-上記はUDM上のreview済みsource directoryで実行します。`unifi-jpix`短縮パスはbootstrap成功後に作られるため、それまでは絶対パスを使用します。providerを使う場合はactivate前に`config/credentials-v2.json.example`からprivate credential fileを作成し、設定内の参照先と一致させてください。v1が稼働中ならinstallerは拒否します。下記のv1廃止に記載した歴史資料を基に、別途移行を計画してください。
+上記はUDM上のreview済みsource directoryで実行します。`unifi-jpix`短縮パスはbootstrap成功後に作られるため、それまでは絶対パスを使用します。providerを使う場合はactivate前に`config/credentials-v2.json.example`からprivate credential fileを作成し、設定内の参照先と一致させてください。installerは追加のproject automationを調べ、稼働中・起動予定・状態不明なら配置前に拒否します。別のautomationを暗黙に停止しません。
 
 開発版を更新配置する場合は`UNIFI_JPIX_INSTALL_VERSION`に新しいversionを指定します。同じversionの既存releaseは再コピーされません。`--activate`なしでも`current`の選択とbootstrap unitの配置は変わるため、すでにv2が稼働中の環境では無影響なstaging操作ではありません。
 
@@ -69,7 +59,7 @@ credentialは`credentials-v2.json`へ分離し、root所有のmode `0600`にし�
 - `unifi-jpix reconcile`: project-owned stateと、明示統合時の限定WAN field/kernel endpointを収束
 - `unifi-jpix status [--json]`: health、drift、隔離理由を表示
 - `unifi-jpix doctor`: boot persistence、unit、release、runtimeを診断
-- `unifi-jpix rollback`: `previous`を優先し、なければ`verified`を選択してbootstrap/reconcileを実行。v1復帰コマンドではない
+- `unifi-jpix rollback`: `previous`を優先し、なければ`verified`を選択してbootstrap/reconcileを実行
 - `unifi-jpix upgrade --release VERSION`: 署名、checksum、manifest、healthを検証して手動更新
 - `unifi-jpix integrate-wan --activate|--confirm|--recover`: 健全なstandaloneからの明示移行、通信確認後の確定、未確定移行の復旧
 
@@ -89,9 +79,9 @@ iptables/ip6tablesの照会・変更は`-w 5`でlockを待ちます。save系は
 
 ### UDM本体のIPv4と回線監視の補正（単一WAN opt-in）
 
-`dev.18`は`UBIOS_DNS_PBR_JUMP`の先頭へ`jpix0`限定のRETURNを置きます。INPUTから先に呼ばれる内部DNS用ACCEPT/DROPへ進まず、続くWAN LOCAL policyで判定するためです。他interfaceのDNS分岐は維持します。先頭位置、rollback時の再挿入位置、旧releaseへのdowngrade制約も検証対象に含みます。
+standalone modeは`UBIOS_DNS_PBR_JUMP`の先頭へ`jpix0`限定のRETURNを置きます。INPUTから先に呼ばれる内部DNS用ACCEPT/DROPへ進まず、続くWAN LOCAL policyで判定するためです。他interfaceのDNS分岐は維持します。先頭位置、rollback時の再挿入位置、旧releaseへのdowngrade制約も検証対象に含みます。
 
-`dev.16`以降、このadapterはIPv4の`UBIOS_FORWARD_IN_USER`、`UBIOS_FORWARD_OUT_USER`、`UBIOS_INPUT_USER_HOOK`に`jpix0`限定のdispatchを維持し、それぞれ既存の`UBIOS_WAN_IN_USER`、`UBIOS_WAN_OUT_USER`、`UBIOS_WAN_LOCAL_USER`へ渡します。WAN policy本体や他interfaceのruleは変更しません。既知のchain到達順・interface dispatch形式・単一の管理WAN参照を確認し、未知のjumpや先行ACCEPT/RETURN、foreignな`jpix0` ruleは隔離します。deactivate時はトンネル削除成功後にdispatchを削除します。新CLIは有効なdispatchを管理できない旧releaseへのrollbackを拒否します。
+このadapterはIPv4の`UBIOS_FORWARD_IN_USER`、`UBIOS_FORWARD_OUT_USER`、`UBIOS_INPUT_USER_HOOK`に`jpix0`限定のdispatchを維持し、それぞれ既存の`UBIOS_WAN_IN_USER`、`UBIOS_WAN_OUT_USER`、`UBIOS_WAN_LOCAL_USER`へ渡します。WAN policy本体や他interfaceのruleは変更しません。既知のchain到達順・interface dispatch形式・単一の管理WAN参照を確認し、未知のjumpや先行ACCEPT/RETURN、foreignな`jpix0` ruleは隔離します。deactivate時はトンネル削除成功後にdispatchを削除します。新CLIは有効なdispatchを管理できない旧releaseへのrollbackを拒否します。
 
 `jpix0`にbindしたpingが成功していても、UDM自身の通常通信・DNS・回線監視がUniFi管理トンネルを使い続ける場合があります。この場合は設定JSONに`"router_recovery": {"enabled": true}`を追加します。既定は無効です。
 
@@ -105,11 +95,11 @@ iptables/ip6tablesの照会・変更は`-w 5`でlockを待ちます。save系は
 
 有効化後、設定だけfalseへ変更しても資産は削除しません。内部の`deactivate()`は元のmonitor flagとproject rule/SNATを処理しますが、CLIの`rollback`はdeactivateではありません。旧版へのdowngradeには、通信経路の復旧手段を準備したうえでadapter資産と設定を整合させる別作業が必要です。新CLIは`router_recovery`非対応releaseへのrollbackを切替前に拒否します。
 
-このadapterはUDAPI既知layout向けのpreviewです。UDM Proの現在構成で実再起動を1回検証済みですが、Network全体のrestart/reprovision、複数WAN、VPN経路との共存は別のgateが必要で、無条件の将来互換を保証しません。
+このadapterはUDAPI既知layout向けのpreviewです。UDM Proのstandalone構成で実再起動を1回検証済みですが、Network全体のrestart/reprovision、複数WAN、VPN経路との共存は別のgateが必要で、無条件の将来互換を保証しません。
 
 ## UniFi管理WANへの統合（preview）
 
-この方式は当初の「UniFi管理トンネルを読み取り専用にする」方針を変更します。`integration.mode`の既定は`standalone`で、既存利用者を自動移行しません。まず健全なstandaloneと`router_recovery.enabled=true`を用意し、以下のCLIで明示移行します。JSONのmodeだけを先に書き換えないでください。
+この方式ではUniFi管理トンネルのenrollment済みfieldを限定補正します。`integration.mode`の既定は`standalone`で、既存利用者を自動移行しません。まず健全なstandaloneと`router_recovery.enabled=true`を用意し、以下のCLIで明示移行します。JSONのmodeだけを先に書き換えないでください。
 
 | 所有範囲 | 統合方式での扱い |
 | --- | --- |
@@ -131,7 +121,7 @@ IPv6 outer allowは契約BR・local endpoint・Protocol 4に限定し、UniFi WA
 
 `state-v2/managed-wan.json`と`managed-migration.json`はmode `0600`です。移行記録には元の設定・runtime・限定WAN field・monitor flag・project firewallが含まれるため、公開ログへ貼らないでください。復旧は記録済みまたは移行後の既知project ruleだけを除去し、他のWAN field変更や未知tagを見つけた場合は停止します。統合確定後にstandaloneへ戻す一般向けCLIは未実装です。通常の`rollback`はrelease切替であり方式の解除ではありません。
 
-`dev.21`のrelease rollbackは、統合adapterファイルの存在だけでなく対応capability markerも検証します。未対応の`dev.19`やmarkerのない`dev.20`以前への切替を拒否し、停止を伴うdowngradeを勝手に実行しません。新方式の再起動、Network全体のrestart/reprovision、WAN/prefix変更、10分timer実発火後の復旧は未検証です。初回API拒否後の即時復旧と通常reconcileの安定動作を、これらのgate合格へ拡張しません。
+release rollbackは、統合adapterファイルの存在だけでなく対応capability markerも検証します。非対応releaseへの切替を拒否し、停止を伴うdowngradeを勝手に実行しません。新方式の再起動、Network全体のrestart/reprovision、WAN/prefix変更、10分timer実発火後の復旧は未検証です。初回API拒否後の即時復旧と通常reconcileの安定動作を、これらのgate合格へ拡張しません。
 
 ### Content Filterを併用する場合のWAN DNS
 
@@ -140,12 +130,6 @@ IPv6 outer allowは契約BR・local endpoint・Protocol 4に限定し、UniFi WA
 UniFi管理画面のInternet → 対象WAN → IPv4 Configurationで、DNSの自動取得が成立しない場合は`Auto DNS Server`を解除し、利用者が選択した到達可能なDNSをPrimary Serverへ指定します。IPv6のAAAAレコードも解決できることを確認してください。実機修正では既に通常DNSで使っているresolverを再利用し、Content Filterの対象・Ad Block・Basic・Safe Searchは変更していません。生成済みの`/run`ファイルだけを書き換えず、UniFi設定として保存します。
 
 適用後はフィルター経由のIPv4/IPv6・UDP/TCP DNS、Safe SearchのCNAME、広告ブロック応答、通常HTTPS、WAN監視を別々に確認します。2026-09-14の実機ではこの検証が成功しました。設定保存によるWAN再構成時には一時的な通信不成立と自動修復を観測しており、DNS修正によって無停止の設定変更が保証されるわけではありません。
-
-## v1廃止
-
-現行配布はv2のみです。旧v1の実行コード、設定雛形、migrate-v1、v1復帰timerは同梱しません。新installerはactiveまたは自動起動が有効なv1、および状態不明のunitを検出すると変更前に拒否します。旧v1の停止・移行は自動実行しません。
-
-[v1廃止記録](v1-retirement.md)と[廃止前の移行資料](https://github.com/shuuheyhey/unifi-jpix-tunnel-repair/tree/9ea09313dd25d6fe326391619551d0ee247aadc3/docs/v2.md)を参照してください。既存の不変releaseはchecksum保持のため個別編集せず、旧activation-confirmed markerを残します。通常のv2 rollbackは旧v1資産に依存しません。
 
 ## 現実装の制約と次の検証
 

@@ -20,21 +20,35 @@ done
 
 [ "$(id -u)" -eq 0 ] || { printf '%s\n' 'installer must run as root' >&2; exit 1; }
 printf '%s\n' "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$' || { printf '%s\n' 'invalid install version' >&2; exit 2; }
-for command in python3 systemctl install; do command -v "$command" >/dev/null 2>&1 || { printf 'missing dependency: %s\n' "$command" >&2; exit 1; }; done
+for command in python3 systemctl install awk sort sed; do command -v "$command" >/dev/null 2>&1 || { printf 'missing dependency: %s\n' "$command" >&2; exit 1; }; done
 
-# Do not run legacy off/apply: they may restore a stale native tunnel.
-# Inspect every legacy entry point before modifying files or release links.
-for suffix in apply.service trigger.service watch.service update.service update.timer; do
-  unit=unifi-jpix-tunnel-repair-$suffix
+# Inspect project-scoped automation before modifying files or release links.
+# Additional enabled/running units could race the reconciler. Never stop them.
+unit_files=$(LC_ALL=C systemctl list-unit-files --no-legend --no-pager 'unifi-jpix*' 2>/dev/null) || {
+  printf '%s\n' 'unifi_jpix_install status=blocked reason=automation-inventory-unavailable' >&2; exit 1;
+}
+loaded_units=$(LC_ALL=C systemctl list-units --all --plain --no-legend --no-pager 'unifi-jpix*' 2>/dev/null) || {
+  printf '%s\n' 'unifi_jpix_install status=blocked reason=automation-inventory-unavailable' >&2; exit 1;
+}
+units=$(printf '%s\n%s\n' "$unit_files" "$loaded_units" | awk 'NF {print $1}' | sort -u)
+for unit in $units; do
+  case $unit in
+    unifi-jpix-bootstrap.service|unifi-jpix-reconcile.service|unifi-jpix-reconcile.timer|unifi-jpix-event-monitor.service|unifi-jpix-udapi-reconcile.service|unifi-jpix-udapi.path) continue ;;
+  esac
+  case $unit in
+    *[!A-Za-z0-9@_.:-]*|unifi-jpix) printf '%s\n' 'unifi_jpix_install status=blocked reason=automation-inventory-invalid' >&2; exit 1 ;;
+    unifi-jpix*) ;;
+    *) printf '%s\n' 'unifi_jpix_install status=blocked reason=automation-inventory-invalid' >&2; exit 1 ;;
+  esac
   properties=$(systemctl show "$unit" -p LoadState -p ActiveState -p UnitFileState 2>/dev/null) || {
-    printf '%s\n' 'unifi_jpix_install status=blocked reason=legacy-state-unknown' >&2; exit 1;
+    printf '%s\n' 'unifi_jpix_install status=blocked reason=automation-state-unknown' >&2; exit 1;
   }
   load=$(printf '%s\n' "$properties" | sed -n 's/^LoadState=//p')
   active=$(printf '%s\n' "$properties" | sed -n 's/^ActiveState=//p')
   enabled=$(printf '%s\n' "$properties" | sed -n 's/^UnitFileState=//p')
   case "$load:$active:$enabled" in
     not-found:inactive:|not-found:inactive:not-found|loaded:inactive:disabled|loaded:inactive:static|masked:inactive:masked) ;;
-    *) printf '%s\n' 'unifi_jpix_install status=blocked reason=legacy-not-retired' >&2; exit 1 ;;
+    *) printf '%s\n' 'unifi_jpix_install status=blocked reason=conflicting-automation' >&2; exit 1 ;;
   esac
 done
 

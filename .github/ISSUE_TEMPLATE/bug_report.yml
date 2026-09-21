@@ -28,15 +28,15 @@ body:
     validations:
       required: true
   - type: textarea
-    id: preflight
+    id: discovery
     attributes:
-      label: Share-safe preflight
-      description: For pre-install problems, summarize v2 discover/check results. Review and remove deployment identifiers before sharing.
+      label: Discovery and capability checks
+      description: For pre-install problems, summarize discover/check results. Review and remove deployment identifiers before sharing.
   - type: textarea
     id: diagnostics
     attributes:
       label: Share-safe diagnostics
-      description: Summarize v2 status --json, doctor and plan reason codes. Do not attach raw config or state.
+      description: Summarize status --json, doctor and plan reason codes. Do not attach raw config or state.
   - type: textarea
     id: validation
     attributes:

@@ -1,7 +1,7 @@
 .worktrees/
-config/v6plus.env
-config/networks.conf
-config/update.env
+config-v2.json
+credentials-v2.json
+state-v2/
 diagnostics/
 test-results/
 *.log

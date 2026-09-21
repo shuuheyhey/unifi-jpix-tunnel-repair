@@ -44,6 +44,6 @@ The connection diagnostic page reports browser-observed source addresses, source
 
 ## Project status
 
-This repository is an independent, unsupported v2 integration. The retired v1 shell runtime and migration fallback are no longer distributed. Historical observations remain in the validation records; they do not establish validation of a different release or integration mode. See [v2](docs/v2.md), [validation](docs/validation.md), and [v1 retirement](docs/v1-retirement.md) for current boundaries. Existing immutable rollback releases are preserved, not edited in place.
+This repository is an independent, unsupported integration. See the [operator guide](docs/guide.md) for installation and ownership boundaries, and [validation](docs/validation.md) for dated evidence and unverified scenarios. Existing immutable rollback releases must not be edited in place.
 
 No provider credentials or assigned deployment addresses are included in this repository.
