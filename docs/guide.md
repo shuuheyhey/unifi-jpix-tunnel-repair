@@ -17,57 +17,51 @@ UDM Proで通信・限定drift・standalone再起動・管理WAN統合を確認�
 
 `model_status=verified` やreleaseの `verified` は、全障害からの復旧・将来互換・stable公開を保証しません。設定保存時には短い通信断が観測されています。
 
-## 永続レイアウト
-
-`/data/unifi-jpix-tunnel-repair`を正本にします。`releases`に不変release、`current`に選択中、`verified`にhealth確認済み、`previous`に直前のreleaseを保存します。設定、credential、runtime stateはrelease外に置きます。
-
-bootstrap serviceは起動時にmanifestのSHA-256を確認し、systemd unitとCLI symlinkを復元します。初回reconcileが成功した後だけreleaseをverifiedへ昇格し、event monitorと5分timerを開始します。新releaseのhealthが失敗した場合はpreviousまたはverifiedへ切り戻します。
-
-bootstrap unit自体の消失は自動復元できません。`unifi-jpix doctor`が欠落を検出したら、同じreleaseのinstallerを再実行してください。
-
-署名付き`upgrade`にはmaintainerのrelease public keyが必要です。現在のcheckoutには配布用公開鍵を内包していません。`install-v2.sh --release-public-key FILE`で別途確認したtrust anchorを登録できます。登録済みkeyの暗黙置換は拒否します。source installerによる開発版配置と、署名済みreleaseの`upgrade`は別経路です。実機に配置した開発版を署名済み公開releaseとみなさないでください。
-
-maintainerは`build-v2-release.sh VERSION PRIVATE_KEY OUTPUT_DIR`でmanifest付きarchive、SHA-256、detached signatureを生成します。private keyはrepositoryやreleaseへ含めません。
-
 ## 初期導入
 
-インストールはreleaseを配置するだけで、`--activate`を付けない限りnetworkを変更しません。
-
-```sh
-sudo ./scripts/install-v2.sh
-sudo /data/unifi-jpix-tunnel-repair/current/bin/unifi-jpix discover
-sudo install -m 0600 config/config-v2.json.example /data/unifi-jpix-tunnel-repair/config-v2.json
-sudo editor /data/unifi-jpix-tunnel-repair/config-v2.json
-sudo /data/unifi-jpix-tunnel-repair/current/bin/unifi-jpix check
-sudo /data/unifi-jpix-tunnel-repair/current/bin/unifi-jpix plan
-sudo ./scripts/install-v2.sh --activate
-```
-
-上記はUDM上のreview済みsource directoryで実行します。`unifi-jpix`短縮パスはbootstrap成功後に作られるため、それまでは絶対パスを使用します。providerを使う場合はactivate前に`config/credentials-v2.json.example`からprivate credential fileを作成し、設定内の参照先と一致させてください。installerは追加のproject automationを調べ、稼働中・起動予定・状態不明なら配置前に拒否します。別のautomationを暗黙に停止しません。
-
-開発版を更新配置する場合は`UNIFI_JPIX_INSTALL_VERSION`に新しいversionを指定します。同じversionの既存releaseは再コピーされません。`--activate`なしでも`current`の選択とbootstrap unitの配置は変わるため、すでにv2が稼働中の環境では無影響なstaging操作ではありません。
-
-`discover`のendpoint候補が0件または複数件なら自動選択しません。configの`endpoint_network`にはIPv4 CIDRかinterfaceのどちらか一方だけを指定します。WAN interfaceとtunnel underlay interfaceは設定しません。
-
-credentialは`credentials-v2.json`へ分離し、root所有のmode `0600`にします。providerがHTTPしか提供しない場合は、`allow_insecure_http`をtrueにするだけでなく、URLと一致する`insecure_http_host`も固定する必要があります。
+[Installation](installation.md)を手順の正本とし、`discover → config編集 → check → plan → 明示activate → 実端末確認`の順に進めます。[Configuration](configuration.md)に全fieldの既定値と制約、[Architecture](architecture.md)に永続レイアウトと起動unitを記載しています。稼働中の更新は初期導入のコマンドを再実行するだけでは完結しません。
 
 ## 公開CLI
 
-- `unifi-jpix discover`: configなしでは機種、候補、backend、placeholder付きconfig案を表示。configありでは選択済み構成のshare-safe capabilityを表示
-- `unifi-jpix check`: configとcapability contractを検証
-- `unifi-jpix plan`: 秘密とaddressを含まない変更理由を表示
-- `unifi-jpix reconcile`: project-owned stateと、明示統合時の限定WAN field/kernel endpointを収束
-- `unifi-jpix status [--json]`: health、drift、隔離理由を表示
-- `unifi-jpix doctor`: boot persistence、unit、release、runtimeを診断
-- `unifi-jpix rollback`: `previous`を優先し、なければ`verified`を選択してbootstrap/reconcileを実行
-- `unifi-jpix upgrade --release VERSION`: 署名、checksum、manifest、healthを検証して手動更新
-- `unifi-jpix integrate-wan --activate|--confirm|--recover`: 健全なstandaloneからの明示移行、通信確認後の確定、未確定移行の復旧
+以下はrootで実行するCLIです。read-onlyの検査コマンドはnetwork設定を変更しません。一般的な`apply`、`off`、`uninstall`、単独の`activate`サブコマンドはありません。
+
+| コマンド | 追加引数 | 内容・変更範囲 |
+| --- | --- | --- |
+| `unifi-jpix discover` | なし | read-only。configなしは候補と雛形、ありは選択構成のcapabilityを表示 |
+| `unifi-jpix check` | なし | read-only。config・capability・plan生成の可否を検査。未適用のactionがあってもreadyになり得る |
+| `unifi-jpix plan` | なし | read-only。割当資源と変更理由を表示。networkへ適用しない |
+| `unifi-jpix reconcile` | `--retry`（任意） | network・runtimeをdesired stateへ収束しhealth確認。必要ならprovider/webhookへ通信 |
+| `unifi-jpix status` | `--json`（任意） | read-only。現在のdrift・隔離状態と直近health。新しい疎通probeではない |
+| `unifi-jpix doctor` | なし | read-only。statusに加えunit配置・enablement・link・provider pending等を確認 |
+| `unifi-jpix rollback` | なし | 互換性確認後にreleaseを選択しbootstrapを実行。[復旧の限界](rollback.md)を先に確認 |
+| `unifi-jpix upgrade` | `--release VERSION`（必須） | 署名付きreleaseを取得・検証・切替しbootstrapを実行 |
+| `unifi-jpix integrate-wan` | `--activate`、`--confirm`、`--recover`のいずれか1つ | 健全なstandaloneから管理WANへ明示移行、試行確定、未確定試行の復旧 |
+
+共通optionはサブコマンドの**前**に指定します。例: `unifi-jpix --config /path/to/private-candidate.json plan`。
+
+- `--root PATH`: state・release等のroot。既定は`/data/unifi-jpix-tunnel-repair`。配布unitの絶対パスを変更するoptionではありません。
+- `--config PATH`: `discover/check/plan/reconcile/status/doctor`の入力configを変更します。`upgrade/rollback/integrate-wan`はroot直下の`config-v2.json`を使うため、別configの試験に流用しません。
+- `--version`: package内のversion文字列。開発版では`2.0.0-dev`のままなので、配置した`dev.N`の確認には`current/verified`のlinkとmanifestを使用します。
+
+正常終了は原則`0`、処理エラーは`1`、引数エラーは`2`です。`status`はhealthy以外で`1`を返します。`doctor`は診断結果に問題があっても表示できれば`0`なので、終了codeだけで判定しません。
+
+configなしの`discover`には実interface名とfirmwareが含まれます。ほかの結果も時刻・versionなどを確認し、公開時は必要な状態とreason codeだけを抜粋してください。config/state/raw journalは共有用出力ではありません。
+
+## Healthの読み方
+
+`status=healthy`は現在のplanに変更予定がないことを示します。新しいpingを実行せず、過去の失敗記録が`last_health`に残る場合もあります。`check=ready`も到達性の証明ではありません。
+
+reconcileのhealthは専用tableのdefault route、tunnelにbindしたIPv4 ping、WANにbindしたIPv6 pingを確認します。router recovery有効時はUDM自身の通常/mark付きroute、ping、monitor flagも確認します。managed modeでは限定WAN fieldとkernel endpointに加え、論理WANにbindしたYouTubeのHTTPS 204応答を確認します。
+
+いずれも実端末の動画・ゲーム、Content Filter専用DNS、全resolver、全LAN、MTU/UDPの完全な試験ではありません。`doctor`の`boot_persistence=ready`も4 unitの存在・enablementとcurrent symlinkの存在を示すだけで、unitのactive状態やmanifestの再検証結果ではありません。[受入チェック](udm-pro-setup.md#有効化後の受入チェック)を別に行います。
+
+provider pendingはdata planeのhealthとは別です。`doctor`で`provider_notification=pending`なら通知経路を確認します。reconcileの`provider_update=not-configured`は通知不要で処理をskipした場合にも返るため、その値だけでprovider設定の有無を判定しません。
 
 ## 自己修復
 
-netlink monitorはlink、address、route、ruleの変更を受けて1秒debounce後に同じoneshot reconcileを起動します。firewall driftや失われたeventは5分timerが回収します。すべての入口は同じnon-blocking flockを使うため、同時mutationは行いません。
+netlink monitorはlink、address、route、ruleの変更を受けて1秒の集約窓の後にoneshot reconcileを起動します。firewall driftや失われたeventは5分timerが回収します。reconcile同士は同じnon-blocking flockで排他しますが、installerやrelease切替はこの保証に含めません。
 
-欠落したproject-owned resourceとWAN/prefix変更だけを自動修復します。前提未成立とforeign conflictは変更せず隔離します。通常のservice実行は最初の失敗後、5秒、15秒、60秒で再試行し、その後はtimer周期へ戻ります。
+欠落・driftした管理対象資産とWAN/prefix変更を修復します。前提未成立とforeign conflictはnetworkを変更せず隔離します。serviceの`--retry`は初回に加え5秒、15秒、60秒の待機を挟む最大3回の再試行です。service timeoutで打ち切られる場合もあり、その後もeventやtimerによる再実行は続きます。手動の`reconcile`は`--retry`なしなら1回だけです。
 
 mutation中はshare-safeなtransaction journalを更新し、health失敗時は記録した逆操作を逆順に実行します。provider通知はendpoint変更時またはpending時だけ実行し、transport失敗ではdata planeをrollbackしません。webhook payloadにはproject、major version、model family、状態、reason codeだけを含めます。
 
@@ -75,15 +69,15 @@ mutation中はshare-safeなtransaction journalを更新し、health失敗時は�
 
 iptables/ip6tablesの照会・変更は`-w 5`でlockを待ちます。save系は実機が`-w`非対応のため、通常呼び出しを1秒・2秒・5秒の待機を挟んで再試行します。health checkはトンネルを維持したまま、失敗後2秒・5秒でpingを再試行します。eventの30秒以内・timerの5分以内は目標であり、lock、再試行、provider通信、timer精度による遅延を含めた上限保証ではありません。
 
-`status`の`healthy`はdesired stateとの差分がないことを示し、新しいpingを実行しません。直近の通信確認は`last_health`を参照します。schema version 2では`repair.interval_seconds`は300だけを受け付け、配布unitの5分周期で動作します。
+timerは`OnUnitInactiveSec=5min`、`AccuracySec=10s`で、reconcile終了からの相対周期です。厳密な5分以内の復旧保証ではありません。schema version 2では`repair.interval_seconds`は300だけを受け付けます。
 
 ### UDM本体のIPv4と回線監視の補正（単一WAN opt-in）
 
-standalone modeは`UBIOS_DNS_PBR_JUMP`の先頭へ`jpix0`限定のRETURNを置きます。INPUTから先に呼ばれる内部DNS用ACCEPT/DROPへ進まず、続くWAN LOCAL policyで判定するためです。他interfaceのDNS分岐は維持します。先頭位置、rollback時の再挿入位置、旧releaseへのdowngrade制約も検証対象に含みます。
+以下は`router_recovery.enabled=true`のstandalone adapterです。`UBIOS_DNS_PBR_JUMP`の先頭へproject tunnel（既定`jpix0`）限定のRETURNを置きます。INPUTから先に呼ばれる内部DNS用ACCEPT/DROPへ進まず、続くWAN LOCAL policyで判定するためです。他interfaceのDNS分岐は維持します。先頭位置、rollback時の再挿入位置、旧releaseへのdowngrade制約も検証対象に含みます。
 
 このadapterはIPv4の`UBIOS_FORWARD_IN_USER`、`UBIOS_FORWARD_OUT_USER`、`UBIOS_INPUT_USER_HOOK`に`jpix0`限定のdispatchを維持し、それぞれ既存の`UBIOS_WAN_IN_USER`、`UBIOS_WAN_OUT_USER`、`UBIOS_WAN_LOCAL_USER`へ渡します。WAN policy本体や他interfaceのruleは変更しません。既知のchain到達順・interface dispatch形式・単一の管理WAN参照を確認し、未知のjumpや先行ACCEPT/RETURN、foreignな`jpix0` ruleは隔離します。deactivate時はトンネル削除成功後にdispatchを削除します。新CLIは有効なdispatchを管理できない旧releaseへのrollbackを拒否します。
 
-`jpix0`にbindしたpingが成功していても、UDM自身の通常通信・DNS・回線監視がUniFi管理トンネルを使い続ける場合があります。この場合は設定JSONに`"router_recovery": {"enabled": true}`を追加します。既定は無効です。
+`jpix0`にbindしたpingが成功していても、UDM自身の通常通信・DNS・回線監視がUniFi管理トンネルを使い続ける場合があります。この場合は単一WANのcapabilityと変更範囲を確認し、設定JSONの`"router_recovery": {"enabled": true}`で明示opt-inします。既定は無効です。稼働中configは監視から即時反映され得るため、[設定変更時の注意](configuration.md#設定変更時の注意)に従います。
 
 1. 単一WAN・単一failover group・`algorithm=single`・既知のmonitor flag型を確認します。WAN名とmarkは現在のUDAPIとpolicy ruleから検出し、物理port名は入力しません。
 2. `32000: from all lookup main`とmainのdefault route不在を確認し、その後の`32001`に`iif lo`限定の専用table参照を維持します。通常のLAN内通信はmainを優先します。異なるlayout・priority競合・複数WANでは変更しません。
@@ -115,7 +109,7 @@ IPv6 outer allowは契約BR・local endpoint・Protocol 4に限定し、UniFi WA
 
 1. 別管理経路を確保し、`unifi-jpix status --json`でhealthy・pending repairs 0を確認します。
 2. `unifi-jpix integrate-wan --activate`を実行します。固有名の10分復旧timerを先に予約し、通常automationを停止、private移行記録を保存してから、project資産を撤去・native WANを補正します。
-3. UDMと実端末のIPv4/IPv6/DNS、管理画面の速度測定・ISP表示を確認します。失敗例外では即時、未確定ならtimerでstandaloneへ復旧します。
+3. UDMと実端末のIPv4/IPv6/DNS、管理画面の速度測定・ISP表示を確認します。失敗例外では即時、未確定ならtimerでstandaloneへの復旧を試みます。所有権不明や同時変更で復旧自体が停止する場合もあるため、別管理経路は維持します。
 4. 合格した場合のみ`unifi-jpix integrate-wan --confirm`を実行します。新しいhealth確認とlock内の確定marker更新後に復旧timerを停止します。
 5. 未確定の試行を中止する場合は`unifi-jpix integrate-wan --recover`を実行します。確定済み記録には何もしないため、遅れたtimerが正常WANを戻すことはありません。
 
@@ -135,6 +129,8 @@ UniFi管理画面のInternet → 対象WAN → IPv4 Configurationで、DNSの自
 
 - transaction journalには変更理由と進捗だけを永続化し、逆操作は実行中のメモリに保持します。通常例外とSIGTERM/SIGINTでは逆操作を実行しますが、電源断やSIGKILL後のjournal replay、完全なverified runtime snapshot復元は未実装です。
 - release rollbackは`previous`を優先します。source installerで選択しただけの未検証releaseも`previous`になり得るため、常に既知の健全版へ戻る保証はありません。
-- `dev.13`の`deactivate()`にあった接続route削除の制御フロー上の不備は、全対象LANを処理するよう修正済みです。複数LAN削除・対象外route保持・削除失敗時のownership state保持をunit testし、`dev.15`へ配置しました。実機でのdeactivate試験は未実施です。
+- 汎用uninstall、確定済みmanaged modeの解除CLIはありません。内部の`deactivate()`は公開操作として提供していません。
 - 起動時unit復元とmanifest検証を実装し、UDM Pro・`dev.15`で通常の実再起動後の自動復旧を確認しました。bootstrap unitやenablement自体がOS更新で消えた場合は自動復元できません。unit配置は現状ファイルごとの`install`であり、unit一式の原子的切替ではありません。
 - UDM Proでの限定drift試験と1回の再起動成功を、WAN/prefix変更、firewall全消失、対象外資産不変、障害全般からの自己修復の証明へ拡張しません。Network全体のrestart/reprovisionとWAN物理断復帰は別の実機gateです。
+
+隔離は自動処理の永続停止ではなく、次回reconcileで再検査されます。逆操作失敗後の停止方法、release選択と自動切戻しの限界は[Rollback](rollback.md)、異常時の確認順は[Troubleshooting](troubleshooting.md)を参照してください。

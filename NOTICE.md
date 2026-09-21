@@ -4,6 +4,8 @@
 
 The following primary service and vendor references were checked on 2026-08-26:
 
+This date applies to the external-reference review, not to the latest repository documentation edit. Later documentation alignment does not imply that these sites, supported-model lists, or ISP parameters have been rechecked. Use the current subscriber notice and official documentation before deployment.
+
 - [JPIX v6 Plus static IP service](https://www.jpix.ad.jp/service/?p=3447)
 - [JPIX public v6 Plus device development guide, revision 1.3](https://www.jpix.ad.jp/files/developer_guide_v6plus_v1.3.pdf)
 - [JPIX public device development guide, revision 1.2](https://www.jpix.ad.jp/files/developer_guide_v6plus-static_v1.2.pdf)
@@ -44,6 +46,6 @@ The connection diagnostic page reports browser-observed source addresses, source
 
 ## Project status
 
-This repository is an independent, unsupported integration. See the [operator guide](docs/guide.md) for installation and ownership boundaries, and [validation](docs/validation.md) for dated evidence and unverified scenarios. Existing immutable rollback releases must not be edited in place.
+This repository is an independent, unsupported integration. See [installation](docs/installation.md) for deployment, the [operator guide](docs/guide.md) for CLI and ownership boundaries, and [validation](docs/validation.md) for dated evidence and unverified scenarios. Existing immutable rollback releases must not be edited in place.
 
 No provider credentials or assigned deployment addresses are included in this repository.

@@ -2,7 +2,9 @@
 
 ## この文書の結論
 
-このプロジェクトが対応するのは、**UDM Pro上のJPIX「v6プラス」固定IPサービス、固定IPv4 1個、DHCPv6-PD構成**だけです。通常の「v6プラス」はMAP-Eであり、このプロジェクトが扱う固定IP用IPIPとは別方式です。HB46PPはIPIPそのものではなく、IPIPやDS-Liteなどの接続パラメータを取得するためのプロビジョニング方式であり、このプロジェクトは実装していません。
+このプロジェクトが対応するサービスは、**JPIX「v6プラス」固定IPサービス、固定IPv4 1個、DHCPv6-PD構成**だけです。実機記録はUDM Proに限られ、UDM SE・UDM Pro Maxはpreviewです。通常の「v6プラス」はMAP-Eであり、このプロジェクトが扱う固定IP用IPIPとは別方式です。HB46PPはIPIPそのものではなく、IPIPやDS-Liteなどの接続パラメータを取得するためのプロビジョニング方式であり、このプロジェクトは実装していません。
+
+この文書は方式と契約値の背景を説明します。導入コマンドは[Installation](installation.md)、JSON schemaは[Configuration](configuration.md)、modeと運用は[運用ガイド](guide.md)を参照してください。外部資料の確認日は[NOTICE](../NOTICE.md)に記録しており、文書の編集日を外部サービスの再確認日と解釈しないでください。
 
 ## 1. まず分けるべき3つの層
 
@@ -85,7 +87,7 @@ JPIXは固定IPサービスを、IPv6 IPoEとIPv6網上のIPv4接続を組み合
 | IID | CPE側local endpointの下位64 bit | `iid` |
 | IPv6 prefix | RAまたはDHCPv6-PDで回線側から取得 | configへ固定せず、明示したdelegated-prefix LAN bridgeのkernel `/64`から観測 |
 | 更新URL | 現在のCPE側IPv6 endpointの通知先 | `provider.update_url` |
-| 更新認証情報 | 通知要求の認証 | `provider_username`、`provider_password` |
+| 更新認証情報 | 通知要求の認証 | `provider.credentials_file`で参照する別JSONの`provider_username`、`provider_password` |
 
 固定IPv4とIPv6 endpointは別の値です。固定されるのは外側から見えるIPv4であり、CPE側IPv6 prefixは変更され得ます。そのため、現在のIPv6 prefixと契約IIDを結合してlocal endpointを構成し、prefix変更時にはBR側が新endpointへ到達できるよう通知します。
 
@@ -309,7 +311,7 @@ HB46PP仕様はHTTP、certificate検証なしHTTPS、自己署名certificate、p
 
 [`http://wa.kiriwake.jpne.co.jp/`](http://wa.kiriwake.jpne.co.jp/)は、利用中のbrowserから複数のIPv4/IPv6 test endpointへ実際に接続し、どの経路が利用できるかを切り分けるページです。画面タイトルは「IPv4/IPv6接続判定ページ」で、IPv4、IPv6、DNS利用有無、フレッツ東西の地域限定到達性、v6プラス専用到達性をまとめて確認できます。
 
-現在は[`https://kiriwake.jpne.co.jp/`](https://kiriwake.jpne.co.jp/)にも判定ページがあります。画面や試験項目は運営側で変更され得るため、障害対応でISPまたはsupportからURLを指定された場合は、そのURLを使ってください。変更前後を比較するときは、同じURL、同じLAN、同じ端末、同じbrowser条件にそろえます。
+資料確認時点では[`https://kiriwake.jpne.co.jp/`](https://kiriwake.jpne.co.jp/)にも判定ページがありました。画面や試験項目は運営側で変更され得るため、障害対応でISPまたはsupportからURLを指定された場合は、そのURLを使ってください。変更前後を比較するときは、同じURL、同じLAN、同じ端末、同じbrowser条件にそろえます。
 
 これはspeed testではなく、経路とservice種別を切り分ける疎通試験です。帯域、latency、packet loss、長時間安定性、IPIP tunnel内部の設定内容を測定するものではありません。
 

@@ -2,6 +2,19 @@
 
 日付・release・動作modeごとに確認済みの範囲を記録します。これは過去の試験結果であり、現在の実機状態を保証しません。失敗または説明できない差分があれば次の段階へ進みません。
 
+## 証拠の読み方
+
+| 記録・表示 | 確認できること | それだけでは確認できないこと |
+| --- | --- | --- |
+| local unit/shell test | 合成fixture・mockでの期待動作 | 実機のkernel・ISP・UniFi API・通信 |
+| manifest一致 | 配置fileとmanifestの整合性 | sourceの真正性、署名済み公開releaseであること |
+| `status=healthy` | 現在のdesired stateとの一致 | freshな疎通、全DNS経路、実端末のアプリ |
+| `verified` link | 当該releaseのbootstrap health成功 | すべての障害・機種での復旧、provider通知成功 |
+| `model_status=verified` | UDM Proに割り当てた検証区分 | 現在のrelease・mode・個体での全gate合格 |
+| 実機試験・利用者確認 | 記録したrelease・mode・条件での観測 | 他mode・新版への再起動結果の転用、将来の無停止保証 |
+
+新しいsourceや文書のテスト件数は、過去の実機phaseの件数へ上書きしません。文書のlocal link/anchor、公開CLI・配布unit・config雛形の記載漏れはrepository testで検査しますが、文章の正確性は実装とも照合します。再現コマンドは[Contributing](../CONTRIBUTING.md#ローカル検証)、実機の受入手順は[UDM Pro runbook](udm-pro-setup.md)に記載しています。
+
 ## 実機検証範囲
 
 ### 2026-09-14: release配置と疎通確認（dev.23）
@@ -106,7 +119,7 @@ dev.14の最初のmonitor試験ではflagは復元したものの、UDAPI応答�
 
 Pythonテスト50件はローカルとUDM上の両方で成功。v2 installer/release/bootstrap・event monitorテスト、変更shellのShellCheck、diff checkも成功しました。この時点の結果は当該componentの検証であり、現在の全テストの合格を示すものではありません。
 
-再起動後はUDM自身の非bind IPv4/native IPv6 ping、DNSを伴うYouTube HTTP 204・Microsoft HTTP 200、WAN health good、7 monitorのavailability 100%を再確認しました。Windows PCでのアプリ復帰も確認できたため、現在構成の通常再起動試験を合格とします。厳密なインターネット停止時間は測定していません。WAN物理切替、Network全体のrestart/reprovision、対象外LAN、長時間soak、VPN共存は未実施です。`deactivate()`の既存複数LAN修正は今回配置しましたが、実機deactivateは未実施です。
+再起動後はUDM自身の非bind IPv4/native IPv6 ping、DNSを伴うYouTube HTTP 204・Microsoft HTTP 200、WAN health good、7 monitorのavailability 100%を再確認しました。Windows PCでのアプリ復帰も確認できたため、当時のdev.15・standalone構成の通常再起動試験を合格とします。厳密なインターネット停止時間は測定していません。WAN物理切替、Network全体のrestart/reprovision、対象外LAN、長時間soak、VPN共存は未実施です。`deactivate()`の既存複数LAN修正は今回配置しましたが、実機deactivateは未実施です。
 
 ## 未検証の実機gate
 
